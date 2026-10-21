@@ -59,6 +59,14 @@ function render(){
  }
  const f=$("#requestForm");if(f)f.onsubmit=submitRequest;
 }
+async function loadConfig(){
+ const [settingsSnap,itemsSnap]=await Promise.all([
+  sdk.getDoc(sdk.doc(db,"settings","public")),
+  sdk.getDocs(sdk.collection(db,"items"))
+ ]);
+ if(settingsSnap.exists()) config={...config,...settingsSnap.data()};
+ config.items=itemsSnap.docs.map(d=>({id:d.id,...d.data()}));
+}
 async function submitRequest(e){
  e.preventDefault();const val=id=>$("#"+id)?.value?.trim()||"",type=currentView;
  try{
