@@ -2,10 +2,12 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
-    // 建立管理員帳號後，將其 Firebase Authentication UID 填入陣列。
     function isAdmin() {
       return signedIn() && request.auth.token.admin == true;
     }
+    // Students do not sign in. Public pages can only read published settings,
+    // available items and course schedule. Public booking writes go through
+    // Cloud Functions, which uses the Admin SDK to validate requests and locks.
     match /settings/{id} {
       allow read: if id == 'public';
       allow write: if isAdmin();
@@ -19,27 +21,10 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
     match /bookings/{id} {
-      allow create: if signedIn()
-        && request.resource.data.ownerUid == request.auth.uid
-        && request.resource.data.status == 'pending'
-        && request.resource.data.keys().hasAll(['ownerUid','type','name','className','phone','itemId','item','date','start','hours','status','lockIds'])
-        && request.resource.data.name is string
-        && request.resource.data.phone is string;
-      allow read: if isAdmin() || (signedIn() && resource.data.ownerUid == request.auth.uid);
-      allow update: if isAdmin()
-        || (signedIn()
-          && resource.data.ownerUid == request.auth.uid
-          && request.resource.data.ownerUid == resource.data.ownerUid
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checkedInAt','checkedOutAt','photos','photoPaths','photoDeleteAfter']));
-      allow delete: if isAdmin();
+      allow read, create, update, delete: if isAdmin();
     }
-    // Occupancy locks expose only slot metadata, not personal information.
     match /reservationLocks/{id} {
-      allow read: if true;
-      allow create: if signedIn()
-        && request.resource.data.ownerUid == request.auth.uid
-        && request.resource.data.keys().hasAll(['ownerUid','bookingId','itemId','date','time','lane','status']);
-      allow update, delete: if isAdmin();
+      allow read, create, update, delete: if isAdmin();
     }
   }
 }
