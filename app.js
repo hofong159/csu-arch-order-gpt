@@ -178,7 +178,7 @@ function bindShell(){
  $("#adminOpen")?.addEventListener("click",()=>$("#adminModal").classList.remove("hidden"));
  $("#adminClose")?.addEventListener("click",()=>$("#adminModal").classList.add("hidden"));
  $("#loginBtn")?.addEventListener("click",loginAdmin);
- $(".tab").forEach(b=>b.addEventListener("click",()=>{currentView=b.dataset.view;render()}));
+ $$(".tab").forEach(b=>b.addEventListener("click",()=>{currentView=b.dataset.view;render()}));
  render();
  window.dispatchEvent(new Event("csu-app-ready"));
 }
