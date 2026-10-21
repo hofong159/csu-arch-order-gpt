@@ -129,7 +129,12 @@ async function loginAdmin(){
   const r=await fetch(API+"/adminLogin",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username,password})}),data=await r.json().catch(()=>({}));
   if(!r.ok||!data.token)throw Error(data.message||"登入失敗，請確認後端登入服務已部署。");
   const c=await sdk.signInWithCustomToken(auth,data.token);adminUser=c.user;$("#adminPassword").value="";feedback("loginError","");await showAdmin();
- }catch(e){feedback("loginError",e.message||"登入失敗。",true)}
+ }catch(e){
+  const message=(e instanceof TypeError && /fetch/i.test(e.message))
+   ? "連不到 Firebase 管理員登入服務。GitHub 網站發布不會自動部署 Firebase 後端。請先部署 Cloud Functions（adminLogin），並設定 ADMIN_USERNAME、ADMIN_PASSWORD；若已部署，請檢查函式是否存在及 CORS 是否允許 https://hofong159.github.io。"
+   : (e.message||"登入失敗。");
+  feedback("loginError",message,true);
+ }
  finally{button.disabled=false;button.textContent=label}
 }
 async function showAdmin(){
