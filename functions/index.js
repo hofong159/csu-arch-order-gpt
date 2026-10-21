@@ -14,6 +14,7 @@ const ORIGIN = "https://hofong159.github.io";
 const db = getFirestore();
 const bucket = getStorage().bucket();
 const attempts = new Map();
+const publicCreateAttempts = new Map();
 
 function safeEqual(actual, expected) {
   const a = Buffer.from(String(actual || ""), "utf8");
@@ -98,6 +99,13 @@ exports.publicBookingApi = onRequest(
     if (req.get("origin") && req.get("origin") !== ORIGIN) return sendError(res,403,"不允許的網站來源。");
     const body = req.body || {};
     const action = String(body.action || "");
+    if (action === "create") {
+      const ip = req.ip || "unknown", now = Date.now();
+      let state = publicCreateAttempts.get(ip) || { count:0, resetAt:now + 10*60*1000 };
+      if (now > state.resetAt) state = { count:0, resetAt:now + 10*60*1000 };
+      if (state.count >= 12) return sendError(res,429,"短時間內申請次數過多，請稍後再試。");
+      state.count++; publicCreateAttempts.set(ip,state);
+    }
     try {
       if (action === "create") {
         const name = String(body.name || "").trim();
@@ -127,7 +135,7 @@ exports.publicBookingApi = onRequest(
         if (item.category !== type && item.category !== "all") throw new Error("所選項目與申請分類不符。");
         if ((type === "micro" || type === "output") && body.agreedRules !== true) throw new Error("請先閱讀並同意該空間規範。");
         if (body.agreed !== true) throw new Error("請先同意借用責任與簽退規範。");
-        const nightStart = asDate(date,"19:00"), morning = new Date(asDate(date,"00:00").getTime() + 8*3600000);
+        const nightStart = asDate(date,"19:00"), morning = new Date(asDate(date,"00:00").getTime() + 32*3600000);
         if (start >= nightStart && start < morning && date === today && new Date() >= nightStart) throw new Error("夜間借用須於當日 19:00 前登記。");
 
         for (const day of eachDate(start,end)) {
