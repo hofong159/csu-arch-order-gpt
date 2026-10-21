@@ -17,13 +17,7 @@ Repository: https://github.com/hofong159/csu-arch-order-gpt
 3. 到 Actions 查看 Deploy static site to GitHub Pages 工作流程，確認最新一輪成功。
 4. 部署成功後網址通常是 https://hofong159.github.io/csu-arch-order-gpt/ 。未成功部署前，不能視為網站已上線。
 
-工作流程會將 app.js.gz.b64 解碼還原成瀏覽器執行的 app.js。若要在 Linux、macOS 或 Git Bash 編輯它，可先執行：
-
-    base64 --decode app.js.gz.b64 | gunzip -c > app.js
-
-修改完 app.js 後，重新產生部署包：
-
-    gzip -9 -c app.js | base64 -w0 > app.js.gz.b64
+目前網站直接使用根目錄的 `app.js`；修改後推送至 `main` 即會自動部署。舊的壓縮檔為早期原型，正式部署不再使用。
 
 ## B. Firebase 設定（學生免登入）
 前端 Firebase 設定已指向 `csu-order-system-af6bb`。`apiKey` 是 Firebase Web SDK 的前端識別設定，不是 Admin SDK 私鑰；仍建議在 Google Cloud Console 限制 API key 的 HTTP referrer，至少允許 `https://hofong159.github.io/*`，並只啟用必要 API。
@@ -41,17 +35,14 @@ Repository: https://github.com/hofong159/csu-arch-order-gpt
 ## C. 部署照片七天自動清理
 簽退時會記錄 photoDeleteAfter，但 GitHub Pages 本身不會定時刪檔。functions 內附 Firebase Cloud Function，每天台灣時間 03:20 刪除已超過保留期限的 Storage 照片並清空紀錄中的照片連結。
 
-需要 Node.js 22 與 Firebase CLI。下載或 clone 此 Repository 後，在專案根目錄執行：
+需要 Node.js 22、Firebase CLI 與 Google Cloud CLI。請依照 [管理員登入設定](ADMIN-LOGIN-SETUP.md) 設定 `ADMIN_USERNAME`、`ADMIN_PASSWORD` Secrets，並部署 Functions、Firestore Rules 與 Storage Rules。學生照片使用短效簽名網址上傳；請依 `storage-cors.json` 設定 Storage bucket 的 CORS：
 
-    npm install -g firebase-tools
-    firebase login
-    cd functions && npm install && cd ..
-    firebase deploy --only functions
+    gcloud storage buckets update gs://csu-order-system-af6bb.firebasestorage.app --cors-file=storage-cors.json
 
-排程通常需要 Firebase 專案啟用 Blaze 計費方案。請先確認帳務、配額與部署結果，再用測試照片驗證。勿將服務帳戶金鑰或其他伺服器秘密放進 Repository。
+排程及第二代 Cloud Functions 可能需要 Firebase 專案啟用 Blaze 計費方案。請先確認帳務、配額與部署結果，再用測試照片驗證。勿將服務帳戶金鑰或其他伺服器秘密放進 Repository。
 
 ## D. 正式使用前必測
 - 原始匯出碼沒有動態空間清單與 Apps Script 後端，項目和正式課表需要管理員補齊。
-- 「我的申請」以目前瀏覽器的匿名 Firebase UID 辨識；換瀏覽器／裝置或清除網站資料後可能找不回舊紀錄。正式使用建議改用學校帳號登入。
-- 送件會先讀取課表，再以 Firestore 交易鎖定時段；正式使用前需測試跨日、同時送件、課表匯入、拒絕申請後釋放鎖定與使用者私有資料權限。
+- 學生端免登入，使用申請時取得的隨機查詢碼加上手機號碼保護紀錄。查詢碼只顯示一次，遺失後無法由公開畫面取回。
+- 預約、課表檢查及時段鎖由 Cloud Functions 使用 Admin SDK 執行；正式使用前需測試跨日、同時送件、課表匯入與拒絕申請後釋放鎖定。
 - 上線前實測：送件、核准、簽到、簽退、照片上傳、七天清理、關閉空間、課表衝突與資料權限。
