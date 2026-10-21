@@ -25,18 +25,18 @@ Repository: https://github.com/hofong159/csu-arch-order-gpt
 
     gzip -9 -c app.js | base64 -w0 > app.js.gz.b64
 
-## B. Firebase 設定
+## B. Firebase 設定（學生免登入）
 前端 Firebase 設定已指向 `csu-order-system-af6bb`。`apiKey` 是 Firebase Web SDK 的前端識別設定，不是 Admin SDK 私鑰；仍建議在 Google Cloud Console 限制 API key 的 HTTP referrer，至少允許 `https://hofong159.github.io/*`，並只啟用必要 API。
 
 1. 在 [Firebase Console](https://console.firebase.google.com/project/csu-order-system-af6bb) 確認專案可存取。
-2. 在 Authentication → Sign-in method 啟用 **Anonymous**，供一般借用者建立申請與查詢自己的紀錄。
-3. 建立 Firestore Database，並啟用 Storage。
-4. 依照 [ADMIN-LOGIN-SETUP.md](ADMIN-LOGIN-SETUP.md) 設定伺服器端管理員帳號與密碼，並部署 `adminLogin` Cloud Function。
+2. 建立 Firestore Database，並啟用 Storage。
+3. 不需要在 Authentication → Sign-in method 啟用 Anonymous，也不需要建立學生帳號。學生直接填表，後端使用申請時發出的查詢碼保護個人申請。
+4. 依照 [ADMIN-LOGIN-SETUP.md](ADMIN-LOGIN-SETUP.md) 設定管理員帳號與密碼 Secret，並部署 `adminLogin` 和 `publicBookingApi` Cloud Functions。
 5. 部署本專案的 `firestore.rules` 和 `storage.rules`。管理員權限由後端簽發的自訂登入權杖授權，不需要建立 Email/Password 管理員帳號，也不應把管理員密碼放在公開程式碼。
 6. 在 Authentication → Settings → Authorized domains 確認包含 `hofong159.github.io`。
 7. 管理員登入後，在「管理員後台 → 空間／設備項目」依原站實際資料新增各空間、設備與機器，再匯入正式課表。
 
-注意：GitHub Pages 部署成功不代表 Firebase Cloud Functions 已部署。請在完成後端登入部署及 Rules 發布後，才開始實際測試管理功能。
+注意：GitHub Pages 部署成功不代表 Firebase Cloud Functions 已部署。請在完成 Functions 部署及 Rules 發布後，才開始實際測試預約、查詢、簽到簽退與管理功能。
 
 ## C. 部署照片七天自動清理
 簽退時會記錄 photoDeleteAfter，但 GitHub Pages 本身不會定時刪檔。functions 內附 Firebase Cloud Function，每天台灣時間 03:20 刪除已超過保留期限的 Storage 照片並清空紀錄中的照片連結。
