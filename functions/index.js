@@ -23,7 +23,7 @@ function safeEqual(actual, expected) {
 function codeHash(phone, code) {
   return crypto.createHash("sha256").update(String(phone).trim() + "|" + String(code).trim().toUpperCase()).digest("hex");
 }
-function cleanPhone(v) { return String(v || "").trim().replace(/[\\s-]/g, ""); }
+function cleanPhone(v) { return String(v || "").trim().replace(/[\s-]/g, ""); }
 function sendError(res, status, message) { return res.status(status).json({ error: message }); }
 function asDate(date, time) { return new Date(date + "T" + time + ":00+08:00"); }
 function dateString(d) {
@@ -109,8 +109,8 @@ exports.publicBookingApi = onRequest(
         const startTime = String(body.start || "");
         const hours = Number(body.hours);
         if (!name || !className || !phone || !itemId || !date || !startTime) throw new Error("請填寫姓名、班級、手機、項目、日期及時間。");
-        if (!/^[\\d+()]{8,20}$/.test(phone)) throw new Error("手機號碼格式不正確。");
-        if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date) || !/^([01]\\d|2[0-3]):[0-5]\\d$/.test(startTime) || Number(startTime.slice(3)) % 30 !== 0) throw new Error("日期或時間格式不正確，起始時間須以半小時為一格。");
+        if (!/^[\d+()]{8,20}$/.test(phone)) throw new Error("手機號碼格式不正確。");
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime) || Number(startTime.slice(3)) % 30 !== 0) throw new Error("日期或時間格式不正確，起始時間須以半小時為一格。");
         if (![3,6,9,12].includes(hours)) throw new Error("借用時數必須為 3 小時倍數。");
         const start = asDate(date,startTime), end = new Date(start.getTime() + hours * 3600000);
         if (start.getTime() <= Date.now()) throw new Error("不能申請已開始或過去的時段。");
