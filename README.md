@@ -26,18 +26,17 @@ Repository: https://github.com/hofong159/csu-arch-order-gpt
     gzip -9 -c app.js | base64 -w0 > app.js.gz.b64
 
 ## B. Firebase 設定
-前端 Firebase 設定已指向 csu-order-system-af6bb。此 apiKey 是 Firebase Web SDK 的前端識別設定，不是 Admin SDK 私鑰；仍建議在 Google Cloud Console 限制 API key 的 HTTP referrer，至少允許 https://hofong159.github.io/*，並只啟用必要 API。
+前端 Firebase 設定已指向 `csu-order-system-af6bb`。`apiKey` 是 Firebase Web SDK 的前端識別設定，不是 Admin SDK 私鑰；仍建議在 Google Cloud Console 限制 API key 的 HTTP referrer，至少允許 `https://hofong159.github.io/*`，並只啟用必要 API。
 
-1. 在 https://console.firebase.google.com/project/csu-order-system-af6bb 確認專案可存取。
-2. Authentication → Sign-in method：啟用 Anonymous 與 Email/Password。
+1. 在 [Firebase Console](https://console.firebase.google.com/project/csu-order-system-af6bb) 確認專案可存取。
+2. 在 Authentication → Sign-in method 啟用 **Anonymous**，供一般借用者建立申請與查詢自己的紀錄。
 3. 建立 Firestore Database，並啟用 Storage。
-4. Authentication → Users：建立管理員 Email/Password 帳號，複製此使用者的 UID。
-5. 將 firestore.rules 和 storage.rules 中的 REPLACE_WITH_ADMIN_UID 改為該 UID。
-6. 分別將 firestore.rules 貼到 Firestore Database → Rules，將 storage.rules 貼到 Storage → Rules，然後按 Publish。
-7. Authentication → Settings → Authorized domains 確認包含 hofong159.github.io。
-8. 首次登入管理員後，在「管理員後台 → 空間／設備項目」依原站實際資料新增各空間、設備與機器；再匯入正式課表。
+4. 依照 [ADMIN-LOGIN-SETUP.md](ADMIN-LOGIN-SETUP.md) 設定伺服器端管理員帳號與密碼，並部署 `adminLogin` Cloud Function。
+5. 部署本專案的 `firestore.rules` 和 `storage.rules`。管理員權限由後端簽發的自訂登入權杖授權，不需要建立 Email/Password 管理員帳號，也不應把管理員密碼放在公開程式碼。
+6. 在 Authentication → Settings → Authorized domains 確認包含 `hofong159.github.io`。
+7. 管理員登入後，在「管理員後台 → 空間／設備項目」依原站實際資料新增各空間、設備與機器，再匯入正式課表。
 
-注意：未替換 REPLACE_WITH_ADMIN_UID 前，管理員寫入會被 Rules 擋下。不要將管理員密碼或服務帳戶私鑰放進 GitHub 或前端程式。
+注意：GitHub Pages 部署成功不代表 Firebase Cloud Functions 已部署。請在完成後端登入部署及 Rules 發布後，才開始實際測試管理功能。
 
 ## C. 部署照片七天自動清理
 簽退時會記錄 photoDeleteAfter，但 GitHub Pages 本身不會定時刪檔。functions 內附 Firebase Cloud Function，每天台灣時間 03:20 刪除已超過保留期限的 Storage 照片並清空紀錄中的照片連結。
