@@ -27,6 +27,7 @@
     <button class="tab" data-view="output">借用出圖室</button>
     <button class="tab" data-view="records">我的申請／簽到簽退</button>
   </nav>
+  <div id="startupStatus" class="notice hidden" role="status"></div>
   <section id="view" class="panel" aria-live="polite"></section>
   <footer>正修科技大學建築相關空間管理｜請依管理員公告及現場規範使用</footer>
 </main>
@@ -43,6 +44,33 @@
   </div>
 </div>
 <div id="toast" class="toast" role="status"></div>
-<script type="module" src="app.js"></script>
+<script>
+(function(){
+  var labels={booking:"空間預約",borrowing:"雙向借用",micro:"借用正修微工坊",output:"借用出圖室",records:"我的申請／簽到簽退"};
+  var ready=false, status=document.getElementById("startupStatus");
+  window.addEventListener("csu-app-ready",function(){ready=true;if(status)status.classList.add("hidden");});
+  window.addEventListener("error",function(e){if(status){status.classList.remove("hidden");status.textContent="網頁互動程式發生錯誤："+(e.message||"未知錯誤")+"。請查看 GitHub Actions 部署紀錄。";}});
+  window.addEventListener("unhandledrejection",function(e){if(status){status.classList.remove("hidden");status.textContent="網頁啟動失敗："+(e.reason&&e.reason.message||e.reason||"未知錯誤")+"。";}});
+  document.addEventListener("click",function(e){
+    var tab=e.target.closest&&e.target.closest(".tab");
+    if(tab){
+      document.querySelectorAll(".tab").forEach(function(b){b.classList.toggle("active",b===tab);});
+      if(!ready){
+        var v=document.getElementById("view");
+        if(v)v.innerHTML="<h2>"+labels[tab.dataset.view]+"</h2><p>正在等待主程式載入。若一直停留在這裡，代表網站程式仍有啟動錯誤；請查看頁面上方的錯誤提示。</p>";
+      }
+    }
+    if(e.target.closest&&e.target.closest("#adminOpen"))document.getElementById("adminModal").classList.remove("hidden");
+    if(e.target.closest&&e.target.closest("#adminClose"))document.getElementById("adminModal").classList.add("hidden");
+  },true);
+  setTimeout(function(){
+    if(!ready&&status){
+      status.classList.remove("hidden");
+      status.textContent="主程式在 5 秒內尚未啟動。上方分頁和管理員視窗仍可點擊；申請功能尚未就緒。此提示會協助找出發佈或 JavaScript 載入錯誤。";
+    }
+  },5000);
+})();
+</script>
+<script defer src="app.js"></script>
 </body>
 </html>
