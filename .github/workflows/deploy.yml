@@ -25,9 +25,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          cp index.html styles.css firebase-config.js dist/
-          base64 --decode app.js.gz.b64 | gunzip -c > dist/app.js
-          python patch-app.py dist/app.js
+          cp index.html styles.css firebase-config.js app.js dist/
           node --check dist/app.js
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
