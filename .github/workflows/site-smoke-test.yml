@@ -60,7 +60,7 @@ jobs:
             if (!modalVisible) throw new Error("ADMIN_MODAL_CLICK_FAILED");
             await page.locator("#adminClose").click();
             if (await page.locator("#adminModal").isVisible()) throw new Error("ADMIN_MODAL_CLOSE_FAILED");
-            const fatalErrors = errors.filter(x => x.startsWith("PAGE ERROR:"));
+            const fatalErrors = errors.filter(x => x.startsWith("PAGE ERROR:") || x.includes(" is not defined") || x.includes("SyntaxError"));
             if (fatalErrors.length) throw new Error("BROWSER_RUNTIME_ERRORS: " + fatalErrors.join(" | "));
             done = true;
           } catch (e) {
