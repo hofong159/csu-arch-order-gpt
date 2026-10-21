@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#172b3a">
+<meta name="description" content="正修建築空間預約、設備借用與工坊管理平台">
+<title>正修建築｜空間預約與設備借用</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="./"><span class="brand-mark">築</span><span><b>正修建築圖科</b><small>空間預約・設備借用管理平台</small></span></a>
+  <button id="adminOpen" class="outline">管理員後台</button>
+</header>
+<main>
+  <section class="hero">
+    <span class="eyebrow">STUDIO SERVICE · CSU</span>
+    <h1>讓空間與設備借用<br><em>更簡單、更清楚。</em></h1>
+    <p>選擇服務，確認規範並送出申請。系統會檢查已登記的課表與時段占用。</p>
+    <div class="chips"><span>時段檢查</span><span>簽到／簽退</span><span>照片回傳</span></div>
+  </section>
+  <nav id="tabs" class="tabs" aria-label="主要服務">
+    <button class="tab active" data-view="booking">空間預約</button>
+    <button class="tab" data-view="borrowing">雙向借用</button>
+    <button class="tab" data-view="micro">借用正修微工坊</button>
+    <button class="tab" data-view="output">借用出圖室</button>
+    <button class="tab" data-view="records">我的申請／簽到簽退</button>
+  </nav>
+  <section id="view" class="panel" aria-live="polite"></section>
+  <footer>正修科技大學建築相關空間管理｜請依管理員公告及現場規範使用</footer>
+</main>
+<div id="adminModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="adminTitle">
+  <div class="modal-card">
+    <button id="adminClose" class="modal-close" aria-label="關閉">×</button>
+    <h2 id="adminTitle">管理員後台</h2>
+    <p class="muted">請使用 Firebase Authentication 管理員帳號登入，不使用公開網頁內寫死的密碼。</p>
+    <label class="field">管理員電子郵件<input id="adminEmail" type="email" autocomplete="username" placeholder="管理員 Email"></label>
+    <label class="field">密碼<input id="adminPassword" type="password" autocomplete="current-password"></label>
+    <button id="loginBtn" class="primary full">登入後台</button>
+    <p id="loginError" class="error"></p>
+    <div id="adminPanel" class="hidden"></div>
+  </div>
+</div>
+<div id="toast" class="toast" role="status"></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
