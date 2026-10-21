@@ -12,7 +12,7 @@ const ADMIN_USERNAME = defineSecret("ADMIN_USERNAME");
 const ADMIN_PASSWORD = defineSecret("ADMIN_PASSWORD");
 const ORIGIN = "https://hofong159.github.io";
 const db = getFirestore();
-const bucket = getStorage().bucket();
+const bucket = getStorage().bucket("csu-order-system-af6bb.firebasestorage.app");
 const attempts = new Map();
 const publicCreateAttempts = new Map();
 
