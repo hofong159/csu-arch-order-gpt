@@ -4,7 +4,7 @@ service cloud.firestore {
     function signedIn() { return request.auth != null; }
     // 建立管理員帳號後，將其 Firebase Authentication UID 填入陣列。
     function isAdmin() {
-      return signedIn() && request.auth.uid in ['REPLACE_WITH_ADMIN_UID'];
+      return signedIn() && request.auth.token.admin == true;
     }
     match /settings/{id} {
       allow read: if id == 'public';
