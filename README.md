@@ -46,3 +46,14 @@ Repository: https://github.com/hofong159/csu-arch-order-gpt
 - 學生端免登入，使用申請時取得的隨機查詢碼加上手機號碼保護紀錄。查詢碼只顯示一次，遺失後無法由公開畫面取回。
 - 預約、課表檢查及時段鎖由 Cloud Functions 使用 Admin SDK 執行；正式使用前需測試跨日、同時送件、課表匯入與拒絕申請後釋放鎖定。
 - 上線前實測：送件、核准、簽到、簽退、照片上傳、七天清理、關閉空間、課表衝突與資料權限。
+
+## 如果你使用 Windows（最簡單的部署方式）
+
+1. 下載 Repository 的 ZIP 並解壓縮。
+2. 安裝 [Node.js 22 LTS](https://nodejs.org/)（如果尚未安裝）。
+3. 在解壓縮後的專案根目錄雙擊 `DEPLOY-FIREBASE-WINDOWS.bat`。
+4. 瀏覽器登入 Firebase 後，依命令提示輸入管理員帳號與密碼。它們會儲存到 Firebase Secret Manager，不會寫進網站程式。
+5. 等待部署結果。成功後，確認終端機有列出 `adminLogin` 和 `publicBookingApi` 的 Function URL。
+
+若腳本最後顯示 `[FAILED]`，把紅色錯誤訊息截圖傳回來即可；請遮住密碼及任何秘密值。
+
