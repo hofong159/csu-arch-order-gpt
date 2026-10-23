@@ -318,7 +318,7 @@ async function showAdmin(){
     }
   };
   await adminSection("settings");
-  $("[data-admin]").forEach(b=>b.classList.toggle("active",b.dataset.admin==="settings"));
+  $$("[data-admin]").forEach(b=>b.classList.toggle("active",b.dataset.admin==="settings"));
 }
 async function seedBaselineData(){
   const button=$("#seedBaselineBtn"), original=button?.textContent||"匯入預設空間、課表與原站借用紀錄";
