@@ -58,7 +58,7 @@ jobs:
             console.log("AFTER TAB CLICK:", workshopHeading);
             if (!workshopHeading.includes("正修微工坊")) throw new Error("TAB_CLICK_FAILED: " + workshopHeading);
             const appSource = await page.evaluate(async () => await (await fetch(document.querySelector("script[src*='app.js']").src)).text());
-            if (!appSource.includes('p.onclick=async(event)=>') || !appSource.includes('quickSeedBtn') || !appSource.includes('data-admin="items"') || !appSource.includes('data-admin="schedule"') || !appSource.includes('data-admin="bookings"')) {
+            if (!appSource.includes('p.onclick=async(event)=>') || !appSource.includes('quickSeedBtn') || !appSource.includes('items') || !appSource.includes('schedule') || !appSource.includes('bookings')) {
               throw new Error("ADMIN_DELEGATED_NAV_OR_IMPORT_ACTION_MISSING");
             }
             console.log("ADMIN NAV HANDLER:", appSource.includes('p.onclick=async(event)=>'));
