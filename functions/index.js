@@ -8,8 +8,7 @@ const { getAuth } = require("firebase-admin/auth");
 const crypto = require("node:crypto");
 
 initializeApp();
-const ADMIN_USERNAME = defineSecret("ADMIN_USERNAME");
-const ADMIN_PASSWORD = defineSecret("ADMIN_PASSWORD");
+const INITIAL_ADMIN_EMAIL = defineSecret("INITIAL_ADMIN_EMAIL");
 const ORIGIN = "https://hofong159.github.io";
 const db = getFirestore();
 const bucket = getStorage().bucket("csu-order-system-af6bb.firebasestorage.app");
@@ -66,26 +65,71 @@ function publicBooking(d, id) {
   };
 }
 
-exports.adminLogin = onRequest(
-  { region:"asia-east1", cors:[ORIGIN], secrets:[ADMIN_USERNAME, ADMIN_PASSWORD], memory:"256MiB" },
+async function verifyAdminBearer(req, requireAdmin = true) {
+  const header = String(req.get("authorization") || "");
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  if (!match) { const e = new Error("請重新登入管理員帳號。"); e.status = 401; throw e; }
+  let claims;
+  try { claims = await getAuth().verifyIdToken(match[1], true); }
+  catch (_) { const e = new Error("登入狀態已失效，請重新登入。"); e.status = 401; throw e; }
+  if (!claims.email || claims.email_verified !== true) {
+    const e = new Error("管理員信箱尚未驗證。請先完成 Email 驗證。"); e.status = 403; throw e;
+  }
+  if (requireAdmin && claims.admin !== true) {
+    const e = new Error("此帳號沒有管理員權限。"); e.status = 403; throw e;
+  }
+  return claims;
+}
+
+exports.bootstrapAdmin = onRequest(
+  { region:"asia-east1", cors:[ORIGIN], secrets:[INITIAL_ADMIN_EMAIL], memory:"256MiB" },
   async (req, res) => {
     if (req.method !== "POST") return sendError(res,405,"只接受 POST 請求。");
     if (req.get("origin") && req.get("origin") !== ORIGIN) return sendError(res,403,"不允許的網站來源。");
-    const ip = req.ip || "unknown", now = Date.now();
-    let state = attempts.get(ip) || { count:0, resetAt:now + 10 * 60 * 1000 };
-    if (now > state.resetAt) state = { count:0, resetAt:now + 10 * 60 * 1000 };
-    if (state.count >= 8) return sendError(res,429,"登入嘗試過多，請稍後再試。");
-    if (!safeEqual(req.body?.username, ADMIN_USERNAME.value()) || !safeEqual(req.body?.password, ADMIN_PASSWORD.value())) {
-      state.count++; attempts.set(ip,state);
-      return sendError(res,401,"管理員帳號或密碼錯誤。");
-    }
-    attempts.delete(ip);
     try {
-      const token = await getAuth().createCustomToken("csu-site-admin", { admin:true });
-      return res.status(200).json({ token });
-    } catch (e) {
-      console.error("adminLogin error",e);
-      return sendError(res,500,"無法建立管理員登入狀態。");
+      const claims = await verifyAdminBearer(req, false);
+      const configuredEmail = String(INITIAL_ADMIN_EMAIL.value() || "").trim().toLowerCase();
+      if (!configuredEmail || String(claims.email).toLowerCase() !== configuredEmail) {
+        return sendError(res,403,"此 Email 不是初始管理員信箱。請確認 INITIAL_ADMIN_EMAIL 設定。");
+      }
+      const user = await getAuth().getUser(claims.uid);
+      await getAuth().setCustomUserClaims(claims.uid, { ...(user.customClaims || {}), admin:true });
+      return res.status(200).json({ ok:true, message:"初始管理員權限已設定，請刷新登入權杖。" });
+    } catch (error) {
+      return sendError(res,error.status || 400,error.message || "無法設定初始管理員權限。");
+    }
+  }
+);
+
+exports.createAdminUser = onRequest(
+  { region:"asia-east1", cors:[ORIGIN], memory:"256MiB" },
+  async (req, res) => {
+    if (req.method !== "POST") return sendError(res,405,"只接受 POST 請求。");
+    if (req.get("origin") && req.get("origin") !== ORIGIN) return sendError(res,403,"不允許的網站來源。");
+    try {
+      await verifyAdminBearer(req, true);
+      const email = String(req.body?.email || "").trim().toLowerCase();
+      const password = String(req.body?.password || "");
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return sendError(res,400,"請輸入有效的 Email。");
+      if (password.length < 12) return sendError(res,400,"新管理員密碼至少需要 12 個字元。");
+      if (password.length > 128) return sendError(res,400,"密碼太長，請使用 128 個字元以下的密碼。");
+      let created;
+      try {
+        created = await getAuth().createUser({ email, password, emailVerified:false, disabled:false });
+      } catch (error) {
+        if (error.code === "auth/email-already-exists") return sendError(res,409,"這個 Email 已經有帳號，請改用其他 Email。");
+        throw error;
+      }
+      try {
+        await getAuth().setCustomUserClaims(created.uid, { admin:true });
+      } catch (error) {
+        await getAuth().deleteUser(created.uid).catch(() => {});
+        throw error;
+      }
+      return res.status(201).json({ ok:true, uid:created.uid, email:created.email,
+        message:"管理員帳號已建立。該管理員首次登入時會收到驗證信，完成驗證後才能使用後台。" });
+    } catch (error) {
+      return sendError(res,error.status || 400,error.message || "新增管理員失敗。");
     }
   }
 );
