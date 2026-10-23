@@ -1,51 +1,41 @@
-# 正修建築｜空間預約與設備借用管理平台（免費方案版）
+# 正修建築｜空間預約與設備借用管理平台（免費版）
 
 網站：https://hofong159.github.io/csu-arch-order-gpt/
 
-本版本不使用 Cloud Functions、Secret Manager 或 Cloud Storage，不需要升級 Blaze 或綁信用卡。使用 Firebase Authentication（管理員 Email／密碼）及 Cloud Firestore。學生免登入；送出申請時會取得 32 碼隨機查詢碼，後續以手機號碼＋查詢碼查詢、簽到及簽退。
+本版只用 Firebase Authentication（管理員 Email／密碼）和 Cloud Firestore；學生免登入，不使用 Cloud Functions、Secret Manager 或 Cloud Storage，不需要升級 Blaze 或綁信用卡。
 
-## 先初始化 Firestore（重要；只需一次）
+## 先做一次：發布 Firestore 規則
 
-你先前執行部署腳本時，出現「Creating the new Firestore database (default)」及 HTTP 403。這是因為專案尚未建立 Firestore 資料庫，CLI 嘗試透過建立資料庫 API 自動建立而收到 billing 錯誤；不要升級付費。
+Firebase Console 已確認你的資料庫存在，ID 為 `(default)`、位置為 `nam5`。不要重建資料庫，也不要升級計費。
 
-1. 開啟 [Firebase Console → Firestore](https://console.firebase.google.com/project/csu-order-system-af6bb/firestore)。
-2. 在「資料庫和儲存空間」→「Firestore Database」點「建立資料庫／Create database」。
-3. 選 **Standard edition**。
-4. Database ID 選 **(default)**（不要建立 named database）。
-5. 地區建議選 `asia-east1`（台灣；建立後地區不能更改）。
-6. 起始安全規則選 **Production mode／正式模式**，再按建立。不要選 Test mode。
-7. 官方說明 Firestore 每個 Firebase 專案有一個免費資料庫配額；若你在主控台這一步仍被要求開啟計費，請先停止，不要升級，截圖錯誤給我再改走既有 Realtime Database。參考：[Firestore 免費配額與計費](https://firebase.google.com/docs/firestore/pricing)、[在 Firebase Console 建立資料庫](https://firebase.google.com/docs/firestore/manage-databases)。
+1. 開啟 [Firestore Rules 編輯器](https://console.firebase.google.com/project/csu-order-system-af6bb/firestore/databases/-default-/rules)。
+2. 在新分頁開啟 [此專案的 firestore.rules](https://raw.githubusercontent.com/hofong159/csu-arch-order-gpt/main/firestore.rules)，按 Ctrl+A、Ctrl+C。
+3. 回 Rules 編輯器按 Ctrl+A、Ctrl+V，貼上全部內容，再按 **Publish／發布**。請不要保留舊的開放測試規則。
 
-## 部署安全規則（資料庫建立後）
+## 登入與設定
 
-資料庫建立完成後，從此 Repository 下載最新版 ZIP、解壓縮，再雙擊 `DEPLOY-FIREBASE-WINDOWS.bat`。這一步只部署 Firestore Rules，不會部署 Functions、Storage，也不會啟用計費。如果看到 `Creating the new Firestore database`，代表資料庫仍沒建好，先回 Console 檢查 Database ID 是否為 `(default)`。
+1. 在 [Firebase Authentication 登入方式](https://console.firebase.google.com/project/csu-order-system-af6bb/authentication/providers) 啟用 **電子郵件／密碼（Email/Password）**；不用啟用 Anonymous。
+2. 確認 Authentication → Users 中有初始管理員 `hofong159@gmail.com`，並使用該 Firebase 帳號的密碼登入網站。
+3. 進入管理員後台 →「公告／開放設定」，修改後按「儲存設定」。成功或失敗會顯示在按鈕下方；`permission-denied` 通常代表 Rules 未發布或登入帳號不是初始管理員。
 
-## 管理員設定
+## 一鍵寫入你提供的空間與課表
 
-1. 在 [Authentication 登入方式](https://console.firebase.google.com/project/csu-order-system-af6bb/authentication/providers) 啟用 Email/Password；不用啟用 Anonymous。
-2. 在 Authentication → Users 建立／確認初始管理員 `hofong159@gmail.com`。
-3. 回網站用該 Email 及 Firebase 使用者密碼登入。這個免費版不強制 Email 驗證。
-4. 初始管理員登入後，到「管理員帳號」新增其他管理員 Email／密碼。
+1. 以初始管理員登入網站。
+2. 在管理員後台按「初始資料匯入」，或在「公告／開放設定」按「一鍵預載空間／課表」。
+3. 按「一鍵匯入空間、課表與借用紀錄」，等待畫面顯示「匯入完成」。這一步才會真正把資料寫入你的 Firebase；我無法從此對話直接使用你登入中的 Firebase Session。
 
-## 功能和免費方案限制
+匯入項目：A–H 區和總評一區、總評二區共 10 個區域；你貼出的 2026-10-24 正課 17 筆；A 區小組借用（2026-10-23 23:30 至 2026-10-24 11:30）；H 區單人借用（2026-10-22 17:00 至 2026-10-27 17:00）。匯入採合併方式，不刪除其他設定；可重複執行，避免同一批紀錄重複新增。
 
-- 空間預約、設備借還、微工坊、出圖室、我的申請、簽到簽退。
-- 管理員管理公告、開放狀態、空間／設備、課表、申請審核及管理員權限。
-- 以 Firestore transaction 寫時段鎖，檢查課表；同一項目每半小時最多兩組。
-- 簽退最多五張壓縮照片，存在 Firestore；超過七天的照片會在管理員下次開啟後台時清理。沒有付費背景排程時，不能保證整整第七天自動刪除。
-- 原始 HTML 輸出碼沒有動態空間清單或 Apps Script 後端；請在管理員後台按原站真實資料建立清單。
-- Firestore Spark 免費額度有限。若管理員登入／新增資料出現 `permission-denied`，檢查 Firestore Rules 是否已部署成功。
-- 學生公開查詢依靠 32 碼隨機查詢碼；請妥善保存，不要分享。
+注意：原網站輸出碼只包含前端呼叫 Apps Script `getBoard()` 的程式，沒有伺服器回傳的完整機具／空間清單。因此一鍵匯入只包含你明確提供的區域與課表，不會假造未提供的機器名稱。兩筆舊借用的電話和查詢碼原資料沒有提供，會標示「原站未提供」；它們是用來反映現有時段占用，不可用新系統的手機＋查詢碼查詢或簽退。
 
-## Firestore 已經建立，不要再建一次
+## 免費版功能與限制
 
-Firebase Console 截圖已確認資料庫為 `(default)`，位置 `nam5`。先前 CLI 嘗試建立已存在的資料庫而回報 403；這不是證明資料庫不存在，也不需要升級計費。
+- 管理空間預約、設備借還、微工坊、出圖室、我的申請／簽到簽退、課表、申請審核和管理員帳號。
+- 預約寫入 Firestore 時段鎖並檢查已匯入的課表；同一區每半小時最多兩組。
+- 簽退照片以壓縮 JPEG 存在 Firestore；逾七天照片於管理員下次開啟後台時清理，不是準時第七天的背景排程。
+- 學生用 32 碼隨機查詢碼和手機號碼查詢紀錄。請保存查詢碼，不要分享。
+- Firestore 免費額度有限。正式給多人使用前，請先測試送件、核准／拒絕、釋放時段、跨日紀錄、簽到簽退和照片。
 
-目前 Console 的 Security Rules 畫面仍顯示測試規則，允許任何人在 2026-11-20 前讀寫。請立即更換：
+## Windows 部署腳本
 
-1. 開啟 https://console.firebase.google.com/project/csu-order-system-af6bb/firestore/databases/-default-/rules
-2. 在另一個分頁開啟 https://raw.githubusercontent.com/hofong159/csu-arch-order-gpt/main/firestore.rules ，按 Ctrl+A、Ctrl+C。
-3. 回規則編輯器按 Ctrl+A、Ctrl+V，貼上全部內容，再按 Publish／發布。
-4. 不用重跑會嘗試建立資料庫的舊 CLI 腳本。若 Console 規則編譯錯誤，截圖錯誤訊息再處理。
-
-可選的唯讀 CLI 診斷命令：`firebase login:list` 和 `firebase firestore:databases:list --project csu-order-system-af6bb`。CMD 先前顯示的登入帳號是 `51237128@gcloud.csu.edu.tw`；若 CLI 看不到資料庫，可能是這個 CLI 身分與 Console 帳號的存取權不同。
+`DEPLOY-FIREBASE-WINDOWS.bat` 是唯讀檢查工具，會列出目前 Firebase CLI 帳號與資料庫，並開啟 Rules 編輯器及規則原文；它不會建立資料庫、不會部署 Cloud Functions，也不會要求計費。
