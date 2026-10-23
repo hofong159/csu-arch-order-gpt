@@ -17,7 +17,8 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           const endpoints = [
-            ['adminLogin', 'https://asia-east1-csu-order-system-af6bb.cloudfunctions.net/adminLogin'],
+            ['bootstrapAdmin', 'https://asia-east1-csu-order-system-af6bb.cloudfunctions.net/bootstrapAdmin'],
+            ['createAdminUser', 'https://asia-east1-csu-order-system-af6bb.cloudfunctions.net/createAdminUser'],
             ['publicBookingApi', 'https://asia-east1-csu-order-system-af6bb.cloudfunctions.net/publicBookingApi']
           ];
           for (const [name, url] of endpoints) {
