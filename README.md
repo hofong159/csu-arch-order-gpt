@@ -51,9 +51,9 @@ Repository: https://github.com/hofong159/csu-arch-order-gpt
 
 1. 下載 Repository 的 ZIP 並解壓縮。
 2. 安裝 [Node.js 22 LTS](https://nodejs.org/)（如果尚未安裝）。
-3. 在解壓縮後的專案根目錄雙擊 `DEPLOY-FIREBASE-WINDOWS.bat`。
-4. 瀏覽器登入 Firebase 後，依命令提示輸入管理員帳號與密碼。它們會儲存到 Firebase Secret Manager，不會寫進網站程式。
-5. 等待部署結果。成功後，確認終端機有列出 `adminLogin` 和 `publicBookingApi` 的 Function URL。
+3. 在 Firebase Authentication → Users 新增你自己的 Email 與密碼；再到專案根目錄雙擊 `DEPLOY-FIREBASE-WINDOWS.bat`。
+4. 瀏覽器登入 Firebase 後，依命令提示輸入 `INITIAL_ADMIN_EMAIL`，必須和剛新增的 Email 完全相同。Email/Password 登入方式必須先啟用。
+5. 等待部署結果。成功後，確認終端機有列出 `bootstrapAdmin`、`createAdminUser` 和 `publicBookingApi` 的 Function URL。初次登入時會寄出 Email 驗證信。
 
 若腳本最後顯示 `[FAILED]`，把紅色錯誤訊息截圖傳回來即可；請遮住密碼及任何秘密值。
 
