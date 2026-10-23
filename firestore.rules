@@ -1,30 +1,133 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() { return request.auth != null; }
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // 初始管理員：已建立的 Firebase Email/Password 帳號。
+    // 其他管理員由初始管理員在前端新增至 /adminUsers/{email}。
     function isAdmin() {
-      return signedIn() && request.auth.token.admin == true && request.auth.token.email_verified == true;
+      return signedIn() && (
+        request.auth.token.email == 'hofong159@gmail.com' ||
+        (request.auth.token.email is string &&
+          exists(/databases/$(database)/documents/adminUsers/$(request.auth.token.email)))
+      );
     }
-    // Students do not sign in. Public pages can only read published settings,
-    // available items and course schedule. Public booking writes go through
-    // Cloud Functions, which uses the Admin SDK to validate requests and locks.
-    match /settings/{id} {
-      allow read: if id == 'public';
-      allow write: if isAdmin();
+
+    function isPublicCode(code) {
+      return code.matches('^[a-f0-9]{32}$');
     }
-    match /items/{id} {
+
+    match /settings/{settingId} {
+      allow get: if settingId == 'public' || isAdmin();
+      allow list: if isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /items/{itemId} {
       allow read: if true;
       allow write: if isAdmin();
     }
-    match /schedule/{id} {
+
+    match /schedule/{scheduleId} {
       allow read: if true;
       allow write: if isAdmin();
     }
-    match /bookings/{id} {
-      allow read, create, update, delete: if isAdmin();
+
+    match /adminUsers/{email} {
+      allow read: if isAdmin();
+      allow create, update, delete: if isAdmin()
+        && email.matches('^[^/]+@[^/]+$')
+        && request.resource.data.email == email;
     }
-    match /reservationLocks/{id} {
-      allow read, create, update, delete: if isAdmin();
+
+    match /bookings/{code} {
+      allow get: if isAdmin() || isPublicCode(code);
+      allow list: if isAdmin();
+
+      allow create: if isPublicCode(code)
+        && request.resource.data.keys().hasAll([
+          'name','className','phone','borrowType','type','itemId','item',
+          'date','start','hours','purpose','status','startAt','endAt',
+          'endDate','endTime','lockIds','photoIds','createdAt',
+          'checkedInAt','checkedOutAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'name','className','phone','borrowType','type','itemId','item',
+          'date','start','hours','purpose','status','startAt','endAt',
+          'endDate','endTime','lockIds','photoIds','createdAt',
+          'checkedInAt','checkedOutAt'
+        ])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.className is string
+        && request.resource.data.phone is string
+        && request.resource.data.itemId is string
+        && request.resource.data.date is string
+        && request.resource.data.start is string
+        && request.resource.data.hours in [3,6]
+        && request.resource.data.status == 'pending'
+        && request.resource.data.lockIds is list
+        && request.resource.data.photoIds is list
+        && request.resource.data.photoIds.size() == 0
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.checkedInAt == null
+        && request.resource.data.checkedOutAt == null;
+
+      allow update: if isAdmin() ||
+        (
+          isPublicCode(code) &&
+          resource.data.status == 'approved' &&
+          resource.data.checkedInAt == null &&
+          resource.data.checkedOutAt == null &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checkedInAt']) &&
+          request.resource.data.checkedInAt == request.time
+        ) ||
+        (
+          isPublicCode(code) &&
+          resource.data.status == 'approved' &&
+          resource.data.checkedInAt != null &&
+          resource.data.checkedOutAt == null &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checkedOutAt','photoIds']) &&
+          request.resource.data.checkedOutAt == request.time &&
+          request.resource.data.photoIds is list &&
+          request.resource.data.photoIds.size() <= 5
+        );
+
+      allow delete: if isAdmin();
+
+      match /photos/{photoId} {
+        allow get, list: if isAdmin();
+        allow create: if isPublicCode(code)
+          && request.resource.data.keys().hasOnly(['dataUrl','name','contentType','createdAt'])
+          && request.resource.data.dataUrl is string
+          && request.resource.data.dataUrl.size() < 700000
+          && request.resource.data.dataUrl.matches('^data:image/jpeg;base64,.*$')
+          && request.resource.data.contentType == 'image/jpeg'
+          && request.resource.data.createdAt == request.time
+          && get(/databases/$(database)/documents/bookings/$(code)).data.status == 'approved'
+          && get(/databases/$(database)/documents/bookings/$(code)).data.checkedInAt != null
+          && get(/databases/$(database)/documents/bookings/$(code)).data.checkedOutAt == null;
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    match /reservationLocks/{lockId} {
+      // Slot documents contain no student personal information.
+      allow get: if true;
+      allow list: if isAdmin();
+      allow create: if request.resource.data.keys().hasAll([
+          'bookingId','lockId','itemId','date','time','lane','status','createdAt'
+        ])
+        && request.resource.data.lockId == lockId
+        && isPublicCode(request.resource.data.bookingId)
+        && request.resource.data.lane in [0,1]
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.itemId == request.resource.data.itemId
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.lockIds.hasAny([lockId]);
+      allow update, delete: if isAdmin();
     }
   }
 }
