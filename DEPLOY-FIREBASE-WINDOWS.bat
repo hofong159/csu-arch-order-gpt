@@ -5,7 +5,7 @@ title CSU Order System - Firebase Setup
 echo ================================================
 echo CSU Order System - Firebase backend deployment
 echo Students do NOT need to sign in.
-echo Admin credentials are stored as Firebase Secrets.
+echo The initial admin email is stored as a Firebase Secret.
 echo ================================================
 echo.
 where node >nul 2>nul
@@ -39,12 +39,10 @@ call npm install
 if errorlevel 1 (popd & goto fail)
 popd
 echo.
-echo [4/5] Enter administrator credentials into Firebase Secret Manager.
-echo At the prompts, enter the existing admin username, then password.
-echo Do NOT paste credentials into GitHub or this chat.
-call firebase functions:secrets:set ADMIN_USERNAME
-if errorlevel 1 goto fail
-call firebase functions:secrets:set ADMIN_PASSWORD
+echo [4/5] Enter the initial administrator email into Firebase Secret Manager.
+echo This must exactly match the first admin user you will add under Firebase Authentication.
+echo Do NOT paste any passwords into GitHub or this chat.
+call firebase functions:secrets:set INITIAL_ADMIN_EMAIL
 if errorlevel 1 goto fail
 echo.
 echo [5/5] Deploy Firebase Functions and security rules.
@@ -53,7 +51,7 @@ if errorlevel 1 goto fail
 echo.
 echo ================================================
 echo DEPLOY COMMAND COMPLETED. Review messages above.
-echo Look for URLs for adminLogin and publicBookingApi.
+echo Look for URLs for bootstrapAdmin, createAdminUser and publicBookingApi.
 echo The command window will remain open for inspection.
 echo ================================================
 goto keepopen
