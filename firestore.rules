@@ -3,7 +3,7 @@ service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
     function isAdmin() {
-      return signedIn() && request.auth.token.admin == true;
+      return signedIn() && request.auth.token.admin == true && request.auth.token.email_verified == true;
     }
     // Students do not sign in. Public pages can only read published settings,
     // available items and course schedule. Public booking writes go through
