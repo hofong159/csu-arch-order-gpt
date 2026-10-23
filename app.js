@@ -38,8 +38,8 @@ const BASELINE_COURSES = [
   {area:"F",start:"13:50",end:"14:35",title:"建築與室內設計(1)／鍾佳霖"}
 ];
 const BASELINE_LEGACY_BOOKINGS = [
-  {key:"A_20261023_2330", code:"a0000000000000000000000000000001", area:"A", name:"楊○宇", borrowType:"小組借用", date:"2026-10-23", start:"23:30", endDate:"2026-10-24", endTime:"11:30"},
-  {key:"H_20261022_1700", code:"b0000000000000000000000000000002", area:"H", name:"顏○晰", borrowType:"單人借用", date:"2026-10-22", start:"17:00", endDate:"2026-10-27", endTime:"17:00"}
+  {key:"A_20261023_2330", area:"A", name:"楊○宇", borrowType:"小組借用", date:"2026-10-23", start:"23:30", endDate:"2026-10-24", endTime:"11:30"},
+  {key:"H_20261022_1700", area:"H", name:"顏○晰", borrowType:"單人借用", date:"2026-10-22", start:"17:00", endDate:"2026-10-27", endTime:"17:00"}
 ];
 const defaultRules = {
   booking:"每區最多兩組，單組不得獨占。請愛惜空間與設備，使用後清潔復原。",
@@ -269,6 +269,145 @@ async function showAdmin(){
   $("#logoutBtn").onclick=async()=>{await sdk.signOut(auth);adminUser=null;p.classList.add("hidden");toast("已登出管理員")};
   await adminSection("settings");
 }
+async function seedBaselineData(){
+  const button=$("#seedBaselineBtn"), original=button?.textContent||"匯入預設空間、課表與原站借用紀錄";
+  if(button){button.disabled=true;button.textContent="正在寫入 Firebase…"}
+  feedback("seedMessage","正在讀取目前資料並準備匯入；已有相同資料會沿用，不會清空其他設定。");
+  try{
+    await loadConfig();
+    const [scheduleSnap,bookingSnap,lockSnap,settingsSnap]=await Promise.all([
+      sdk.getDocs(sdk.collection(db,"schedule")),
+      sdk.getDocs(sdk.collection(db,"bookings")),
+      sdk.getDocs(sdk.collection(db,"reservationLocks")),
+      sdk.getDoc(sdk.doc(db,"settings","public"))
+    ]);
+    const existingCourses=scheduleSnap.docs.map(d=>({id:d.id,...d.data()}));
+    const existingBookings=bookingSnap.docs.map(d=>({id:d.id,...d.data()}));
+    const existingLocks=new Set(lockSnap.docs.map(d=>d.id));
+    const existingItems=config.items;
+    const itemIdByArea={};
+    const batch=sdk.writeBatch(db);
+    let itemWrites=0,courseWrites=0,bookingWrites=0,lockWrites=0;
+    const serverTime=sdk.serverTimestamp();
+
+    for(const area of BASELINE_SPACES){
+      const oldItem=existingItems.find(i=>i.name===area.name);
+      const itemId=oldItem?.id||("space_"+area.code);
+      itemIdByArea[area.code]=itemId;
+      const itemRef=sdk.doc(db,"items",itemId);
+      batch.set(itemRef,{
+        name:area.name,category:"booking",
+        description:"正修建築圖科九樓設計教室區域。每區最多兩組，單組不得獨占。",
+        available:oldItem?.available===false?false:true,
+        capacityGroups:2,areaCode:area.code,sourceSeedKey:"original_space_"+area.code,
+        updatedAt:serverTime
+      },{merge:true});
+      itemWrites++;
+    }
+
+    for(const course of BASELINE_COURSES){
+      const itemId=itemIdByArea[course.area];
+      const seedKey="course_20261024_"+course.area+"_"+course.start.replace(":","");
+      const same=existingCourses.find(r=>r.sourceSeedKey===seedKey||(
+        r.date==="2026-10-24"&&r.start===course.start&&r.end===course.end&&
+        r.itemId===itemId&&r.title===course.title
+      ));
+      const ref=sdk.doc(db,"schedule",same?.id||seedKey);
+      batch.set(ref,{
+        date:"2026-10-24",start:course.start,end:course.end,
+        title:course.title,itemId,areaCode:course.area,type:"course",
+        sourceSeedKey:seedKey,source:"使用者提供之原站課表",updatedAt:serverTime
+      },{merge:true});
+      courseWrites++;
+    }
+
+    const formatTaipei=ms=>{
+      const d=new Date(ms+8*60*60*1000);
+      return {date:d.toISOString().slice(0,10),time:d.toISOString().slice(11,16)};
+    };
+    const buildSlots=(date,start,endDate,endTime,itemId)=>{
+      let cursor=new Date(date+"T"+start+":00+08:00").getTime();
+      const finish=new Date(endDate+"T"+endTime+":00+08:00").getTime();
+      const result=[];
+      while(cursor<finish){
+        const local=formatTaipei(cursor);
+        result.push({date:local.date,time:local.time,key:local.date+"_"+itemId+"_"+local.time.replace(":","")});
+        cursor+=30*60*1000;
+      }
+      return result;
+    };
+
+    for(const row of BASELINE_LEGACY_BOOKINGS){
+      const itemId=itemIdByArea[row.area];
+      const already=existingBookings.find(b=>b.sourceSeedKey==="original_booking_"+row.key);
+      if(already)continue;
+      const slots=buildSlots(row.date,row.start,row.endDate,row.endTime,itemId);
+      const lane=[0,1].find(l=>slots.every(s=>!existingLocks.has(s.key+"_"+l)));
+      if(lane===undefined){
+        console.warn("Cannot import active legacy reservation because both lanes conflict:",row.key);
+        continue;
+      }
+      const code=randomCode();
+      const lockIds=slots.map(s=>s.key+"_"+lane);
+      const startAt=new Date(row.date+"T"+row.start+":00+08:00").getTime();
+      const endAt=new Date(row.endDate+"T"+row.endTime+":00+08:00").getTime();
+      const bookingRef=sdk.doc(db,"bookings",code);
+      batch.set(bookingRef,{
+        name:row.name,className:"原站匯入紀錄（班級未提供）",phone:"原站未提供電話",
+        borrowType:row.borrowType,type:"booking",itemId,item:row.area+"區",
+        areaCode:row.area,date:row.date,start:row.start,hours:Math.round((endAt-startAt)/3600000),
+        endDate:row.endDate,endTime:row.endTime,startAt,endAt,
+        purpose:"依使用者提供的原站畫面匯入；原畫面未提供電話及查詢碼。",
+        status:"approved",displayStatus:"預約中",importedOriginal:true,
+        sourceSeedKey:"original_booking_"+row.key,lockIds,photoIds:[],
+        createdAt:serverTime,checkedInAt:null,checkedOutAt:null
+      });
+      bookingWrites++;
+      slots.forEach((slot,i)=>{
+        const lockId=lockIds[i];
+        const lockRef=sdk.doc(db,"reservationLocks",lockId);
+        batch.set(lockRef,{
+          bookingId:code,lockId,itemId,date:slot.date,time:slot.time,
+          lane,status:"active",createdAt:serverTime,sourceSeedKey:"original_booking_"+row.key
+        });
+        existingLocks.add(lockId);
+        lockWrites++;
+      });
+    }
+
+    const existingPublic=settingsSnap.exists()?settingsSnap.data():{};
+    const oldSettings=existingPublic.settings||{};
+    const oldRules=existingPublic.rules||{};
+    const sourceNotice="原站規則：起始時間每 30 分鐘一格；借用時間以 3 小時為倍數，可跨日，建議不超過 6 小時。夜間 19:00 至翌日 08:00 須於 19:00 前登記；寒暑假不開放。每區最多兩組，單組不得獨占。21:30 現場無人將鎖門，晚間留用請依規定事先到場確認。簽退前請清潔復原並依現場規定回報照片。";
+    batch.set(sdk.doc(db,"settings","public"),{
+      settings:{
+        microOpen:oldSettings.microOpen===false?false:true,
+        outputOpen:oldSettings.outputOpen===false?false:true,
+        notice:oldSettings.notice||sourceNotice
+      },
+      rules:{
+        ...defaultRules,
+        booking:oldRules.booking||"每區最多兩組，單組不得獨占。起始時間每 30 分鐘一格；借用時間以 3 小時為倍數，建議不超過 6 小時。夜間留用須依原站規定提前登記。使用後請清潔復原並完成簽退。",
+        borrowing:oldRules.borrowing||defaultRules.borrowing,
+        micro:oldRules.micro||defaultRules.micro,
+        output:oldRules.output||defaultRules.output
+      },
+      baselineSeedVersion:"2026-10-24-v1",baselineSeededAt:serverTime
+    },{merge:true});
+
+    await batch.commit();
+    await loadConfig();
+    await adminSection("seed");
+    render();
+    feedback("seedMessage","匯入完成：區域 "+itemWrites+" 筆、課表 "+courseWrites+" 筆；新增原站有效借用 "+bookingWrites+" 筆、時段鎖 "+lockWrites+" 格。再次執行會沿用相同資料，不會刪除其他設定。");
+    toast("空間與課表已寫入 Firebase");
+  }catch(e){
+    feedback("seedMessage","匯入失敗："+friendlyError(e)+"。若顯示 permission-denied，表示 Firestore Rules 尚未允許初始管理員寫入；請先發布 Repository 的 firestore.rules。",true);
+  }finally{
+    if(button){button.disabled=false;button.textContent=original}
+  }
+}
+
 async function adminSection(which){
   const c=$("#adminContent");
   if(which==="admins"){
