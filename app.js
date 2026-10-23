@@ -6,6 +6,41 @@ const INITIAL_ADMIN_EMAIL = "hofong159@gmail.com";
 let sdk = {}, app = null, auth = null, db = null, firebaseConfig = null;
 let config = {items:[], rules:{}, settings:{}}, currentView = "booking", adminUser = null;
 const labels = {booking:"空間預約", borrowing:"雙向借用", micro:"借用正修微工坊", output:"借用出圖室", records:"我的申請／簽到簽退"};
+const BASELINE_SPACES = [
+  {code:"A", name:"A區"},
+  {code:"B", name:"B區"},
+  {code:"C", name:"C區"},
+  {code:"D", name:"D區"},
+  {code:"E", name:"E區"},
+  {code:"F", name:"F區"},
+  {code:"G", name:"G區"},
+  {code:"H", name:"H區"},
+  {code:"review1", name:"總評一區"},
+  {code:"review2", name:"總評二區"}
+];
+const BASELINE_COURSES = [
+  {area:"A",start:"13:00",end:"13:45",title:"基本設計(一)／商博淵"},
+  {area:"A",start:"13:50",end:"14:35",title:"建築與室內設計(1)／張龍吉"},
+  {area:"A",start:"14:40",end:"15:25",title:"建築與室內設計(3)／梁俊仁"},
+  {area:"A",start:"15:30",end:"16:15",title:"建築與室內設計(5)／陳柏志"},
+  {area:"B",start:"13:50",end:"14:35",title:"建築與室內設計(1)／蔣曉梅"},
+  {area:"B",start:"14:40",end:"15:25",title:"建築與室內設計(3)／黃宏傑"},
+  {area:"B",start:"15:30",end:"16:15",title:"建築與室內設計(5)／龔天發"},
+  {area:"C",start:"13:00",end:"13:45",title:"基本設計(一)／邱建銘"},
+  {area:"C",start:"13:50",end:"14:35",title:"建築與室內設計(1)／吳建璋"},
+  {area:"C",start:"14:40",end:"15:25",title:"建築與室內設計(3)／黃克明"},
+  {area:"C",start:"15:30",end:"16:15",title:"建築與室內設計(5)／辜達齊"},
+  {area:"D",start:"13:00",end:"13:45",title:"基本設計(一)／鄭尊仁"},
+  {area:"D",start:"13:50",end:"14:35",title:"建築與室內設計(1)／謝志昌"},
+  {area:"D",start:"14:40",end:"15:25",title:"建築與室內設計(3)／姜景龍"},
+  {area:"D",start:"15:30",end:"16:15",title:"建築與室內設計(5)／曾亮"},
+  {area:"F",start:"13:00",end:"13:45",title:"基本設計(一)／郭怡君"},
+  {area:"F",start:"13:50",end:"14:35",title:"建築與室內設計(1)／鍾佳霖"}
+];
+const BASELINE_LEGACY_BOOKINGS = [
+  {key:"A_20261023_2330", code:"a0000000000000000000000000000001", area:"A", name:"楊○宇", borrowType:"小組借用", date:"2026-10-23", start:"23:30", endDate:"2026-10-24", endTime:"11:30"},
+  {key:"H_20261022_1700", code:"b0000000000000000000000000000002", area:"H", name:"顏○晰", borrowType:"單人借用", date:"2026-10-22", start:"17:00", endDate:"2026-10-27", endTime:"17:00"}
+];
 const defaultRules = {
   booking:"每區最多兩組，單組不得獨占。請愛惜空間與設備，使用後清潔復原。",
   borrowing:"借出及歸還時請確認物品狀況，並依管理員公告辦理。",
