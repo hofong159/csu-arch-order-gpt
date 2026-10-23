@@ -120,7 +120,7 @@ async function submitRequest(e){
         checkedInAt:null,checkedOutAt:null
       });
       slots.forEach((slot,i)=>tx.set(sdk.doc(db,"reservationLocks",lockIds[i]),{
-        bookingId:code,itemId,date:slot.date,time:slot.time,lane,status:"active",createdAt:sdk.serverTimestamp()
+        bookingId:code,lockId:lockIds[i],itemId,date:slot.date,time:slot.time,lane,status:"active",createdAt:sdk.serverTimestamp()
       }));
     });
     const receipt=$("#receipt");receipt.classList.remove("hidden");
@@ -317,7 +317,6 @@ function bindShell(){
   window.dispatchEvent(new Event("csu-app-ready"));
 }
 async function boot(){
-  bindShell();
   try{
     const [appSdk,authSdk,firestoreSdk,configModule]=await Promise.all([
       import("https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js"),
