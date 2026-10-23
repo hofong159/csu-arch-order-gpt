@@ -307,7 +307,6 @@ async function showAdmin(){
       return;
     }
   };
-  $("#quickSeedBtn").onclick=null;
   $("#logoutBtn").onclick=async()=>{
     try{await sdk.signOut(auth)}finally{
       adminUser=null;p.classList.add("hidden");
@@ -319,6 +318,7 @@ async function showAdmin(){
     }
   };
   await adminSection("settings");
+  $("#adminPanel button[data-admin]").forEach(b=>b.classList.toggle("active",b.dataset.admin==="settings"));
 }
 async function seedBaselineData(){
   const button=$("#seedBaselineBtn"), original=button?.textContent||"匯入預設空間、課表與原站借用紀錄";
@@ -510,13 +510,13 @@ async function adminSection(which){
   if(which==="items"){
     c.innerHTML='<h3>新增空間／設備</h3><div class="grid"><label class="field">名稱<input id="newName"></label><label class="field">分類<select id="newCategory"><option value="booking">設計教室</option><option value="micro">正修微工坊</option><option value="output">出圖室</option><option value="all">全部分類</option></select></label></div><label class="field">說明／用途<input id="newDesc"></label><label class="check"><input id="newAvailable" type="checkbox" checked>目前可用</label><button id="addItem" class="primary">新增項目</button><h3>既有項目（可編輯）</h3><div class="table-wrap"><table><thead><tr><th>名稱／說明</th><th>分類</th><th>狀態</th><th>操作</th></tr></thead><tbody>'+
       config.items.map(i=>'<tr><td><input data-name="'+esc(i.id)+'" value="'+esc(i.name)+'"><input data-desc="'+esc(i.id)+'" value="'+esc(i.description||"")+'" placeholder="說明"></td><td><select data-cat="'+esc(i.id)+'">'+["booking","borrowing","micro","output","all"].map(k=>'<option value="'+k+'" '+(i.category===k?"selected":"")+'>'+k+'</option>').join("")+'</select></td><td><input data-avail="'+esc(i.id)+'" type="checkbox" '+(i.available===false?"":"checked")+'></td><td><button class="secondary" data-saveitem="'+esc(i.id)+'">儲存</button><button class="danger" data-delitem="'+esc(i.id)+'">刪除</button></td></tr>').join("")+
-      '</tbody></table></div><p class="muted">原始匯出碼未包含動態空間清單，請依原站實際資料建立。</p>';
+      '</tbody></table></div><p class="muted">原站匯出碼未包含完整機具清單；空間可由「初始資料匯入」建立，機具請依現場設備逐項新增。</p>';
     $("#addItem").onclick=async()=>{const name=$("#newName").value.trim();if(!name)return toast("請輸入名稱");try{await sdk.addDoc(sdk.collection(db,"items"),{name,category:$("#newCategory").value,description:$("#newDesc").value,available:$("#newAvailable").checked,updatedAt:sdk.serverTimestamp()});await loadConfig();await adminSection("items");render();toast("項目已新增")}catch(e){toast("新增失敗："+friendlyError(e))}};
     $$("[data-saveitem]").forEach(b=>b.onclick=async()=>{const id=b.dataset.saveitem;try{await sdk.updateDoc(sdk.doc(db,"items",id),{name:$("[data-name='"+id+"']",c).value.trim(),description:$("[data-desc='"+id+"']",c).value,category:$("[data-cat='"+id+"']",c).value,available:$("[data-avail='"+id+"']",c).checked,updatedAt:sdk.serverTimestamp()});await loadConfig();await adminSection("items");render();toast("項目已更新")}catch(e){toast("更新失敗："+friendlyError(e))}});
     $$("[data-delitem]").forEach(b=>b.onclick=async()=>{if(!confirm("確定刪除此項目？"))return;try{await sdk.deleteDoc(sdk.doc(db,"items",b.dataset.delitem));await loadConfig();await adminSection("items");render();toast("項目已刪除")}catch(e){toast("刪除失敗："+friendlyError(e))}});
   }
   if(which==="schedule"){
-    const snap=await sdk.getDocs(sdk.query(sdk.collection(db,"schedule"),sdk.orderBy("date","asc"))).catch(()=>null),rows=snap?snap.docs.map(d=>({id:d.id,...d.data()})):[];
+    const snap=await sdk.getDocs(sdk.query(sdk.collection(db,"schedule"),sdk.orderBy("date","asc"))),rows=snap.docs.map(d=>({id:d.id,...d.data()}));
     c.innerHTML='<h3>課表管理</h3><p class="muted">每行一筆：日期,開始時間,結束時間,課程名稱,空間項目 ID（可省略，省略表示全域占用）。</p><label class="field">課表 CSV<textarea id="csv" rows="6" placeholder="2026-10-22,09:00,12:00,建築設計課"></textarea></label><label class="check"><input type="checkbox" id="replaceSchedule">匯入前清除所有現有課表（慎用）</label><button id="importSchedule" class="primary">匯入課表</button><h3>已匯入 '+rows.length+' 筆課表</h3><div class="table-wrap"><table><thead><tr><th>日期</th><th>區域</th><th>時段</th><th>課程</th><th>操作</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+esc(r.date)+'</td><td>'+esc(r.areaCode?r.areaCode+"區":"全域占用")+'</td><td>'+esc(r.start)+'–'+esc(r.end)+'</td><td>'+esc(r.title||"課表占用")+'</td><td><button class="danger" data-sdel="'+esc(r.id)+'">刪除</button></td></tr>').join("")+'</tbody></table></div>';
     $("#importSchedule").onclick=async()=>{const parsed=[];for(const line of $("#csv").value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean)){const p=line.split(",").map(x=>x.trim());if(p.length<3||!/^\d{4}-\d{2}-\d{2}$/.test(p[0])||!/^([01]\d|2[0-3]):[0-5]\d$/.test(p[1])||!/^([01]\d|2[0-3]):[0-5]\d$/.test(p[2])||p[1]>=p[2])return toast("格式錯誤："+line);parsed.push({date:p[0],start:p[1],end:p[2],title:p[3]||"課表占用",itemId:p[4]||"",createdAt:sdk.serverTimestamp()})}try{if($("#replaceSchedule").checked){const old=await sdk.getDocs(sdk.collection(db,"schedule"));for(const d of old.docs)await sdk.deleteDoc(sdk.doc(db,"schedule",d.id))}for(const row of parsed)await sdk.addDoc(sdk.collection(db,"schedule"),row);await adminSection("schedule");toast("已匯入 "+parsed.length+" 筆")}catch(e){toast("匯入失敗："+friendlyError(e))}};
     $$("[data-sdel]").forEach(b=>b.onclick=async()=>{if(!confirm("確定刪除此課表？"))return;try{await sdk.deleteDoc(sdk.doc(db,"schedule",b.dataset.sdel));await adminSection("schedule")}catch(e){toast("刪除失敗："+friendlyError(e))}});
