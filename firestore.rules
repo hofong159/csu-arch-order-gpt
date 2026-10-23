@@ -45,7 +45,7 @@ service cloud.firestore {
       allow get: if isAdmin() || isPublicCode(code);
       allow list: if isAdmin();
 
-      allow create: if isPublicCode(code)
+      allow create: if isAdmin() || (isPublicCode(code)
         && request.resource.data.keys().hasAll([
           'name','className','phone','borrowType','type','itemId','item',
           'date','start','hours','purpose','status','startAt','endAt',
@@ -79,7 +79,7 @@ service cloud.firestore {
         && request.resource.data.photoIds.size() == 0
         && request.resource.data.createdAt == request.time
         && request.resource.data.checkedInAt == null
-        && request.resource.data.checkedOutAt == null;
+        && request.resource.data.checkedOutAt == null);
 
       allow update: if isAdmin() ||
         (
@@ -122,7 +122,7 @@ service cloud.firestore {
     match /reservationLocks/{lockId} {
       allow get: if true;
       allow list: if isAdmin();
-      allow create: if request.resource.data.keys().hasAll([
+      allow create: if isAdmin() || (request.resource.data.keys().hasAll([
           'bookingId','lockId','itemId','date','time','lane','status','createdAt'
         ])
         && request.resource.data.lockId == lockId
@@ -131,7 +131,7 @@ service cloud.firestore {
         && request.resource.data.status == 'active'
         && request.resource.data.createdAt == request.time
         && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.itemId == request.resource.data.itemId
-        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.lockIds.hasAny([lockId]);
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.lockIds.hasAny([lockId]));
       allow update, delete: if isAdmin();
     }
   }
