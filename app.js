@@ -121,31 +121,88 @@ function bindShell(){
  $$(".tab").forEach(b=>b.onclick=()=>{currentView=b.dataset.view;render()});
  render();
 }
+async function callAdminApi(endpoint, body={}) {
+ const user=auth.currentUser;
+ if(!user) throw new Error("請先登入管理員帳號。");
+ const token=await user.getIdToken();
+ const response=await fetch(API+"/"+endpoint,{
+  method:"POST",
+  headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},
+  body:JSON.stringify(body)
+ });
+ const result=await response.json().catch(()=>({}));
+ if(!response.ok) throw new Error(result.error||result.message||"管理員 API 呼叫失敗。");
+ return result;
+}
 async function loginAdmin(){
- const username=$("#adminEmail").value.trim(),password=$("#adminPassword").value,button=$("#loginBtn"),label=button.textContent;
- if(!username||!password){feedback("loginError","請輸入管理員帳號與密碼。",true);return}
+ const email=$("#adminEmail").value.trim(),password=$("#adminPassword").value,button=$("#loginBtn"),label=button.textContent;
+ if(!email||!password){feedback("loginError","請輸入管理員 Email 與密碼。",true);return}
  button.disabled=true;button.textContent="驗證中…";
  try{
-  const r=await fetch(API+"/adminLogin",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username,password})}),data=await r.json().catch(()=>({}));
-  if(!r.ok||!data.token)throw Error(data.message||"登入失敗，請確認後端登入服務已部署。");
-  const c=await sdk.signInWithCustomToken(auth,data.token);adminUser=c.user;$("#adminPassword").value="";feedback("loginError","");await showAdmin();
+  const credential=await sdk.signInWithEmailAndPassword(auth,email,password);
+  adminUser=credential.user;
+  if(!adminUser.emailVerified){
+   try { await sdk.sendEmailVerification(adminUser); }
+   finally { await sdk.signOut(auth); adminUser=null; }
+   throw new Error("這個 Email 尚未驗證。Firebase 已寄出驗證信，請先開啟信件完成驗證，再回到網站登入。");
+  }
+  let tokenResult=await adminUser.getIdTokenResult(true);
+  if(tokenResult.claims.admin!==true){
+   try {
+    await callAdminApi("bootstrapAdmin");
+    await adminUser.getIdToken(true);
+    tokenResult=await adminUser.getIdTokenResult(true);
+   } catch (e) {
+    if(String(e.message||"").includes("不是初始管理員信箱")) {
+      throw new Error("登入成功，但此 Email 尚未被授予管理員權限。請由初始管理員在後台建立帳號，或確認 Firebase 的 INITIAL_ADMIN_EMAIL 設定。");
+    }
+    throw e;
+   }
+  }
+  if(tokenResult.claims.admin!==true)throw new Error("這個帳號沒有管理員權限。");
+  $("#adminPassword").value="";
+  feedback("loginError","");
+  await showAdmin();
  }catch(e){
-  const message=(e instanceof TypeError && /fetch/i.test(e.message))
-   ? "連不到 Firebase 管理員登入服務。GitHub 網站發布不會自動部署 Firebase 後端。請先部署 Cloud Functions（adminLogin），並設定 ADMIN_USERNAME、ADMIN_PASSWORD；若已部署，請檢查函式是否存在及 CORS 是否允許 https://hofong159.github.io。"
-   : (e.message||"登入失敗。");
+  let message=e.message||"登入失敗。";
+  if(e.code==="auth/operation-not-allowed")message="Firebase 尚未啟用 Email/Password 登入方式，請到 Authentication → 登入方式啟用「電子郵件／密碼」。";
+  else if(e.code==="auth/invalid-credential"||e.code==="auth/wrong-password"||e.code==="auth/user-not-found")message="Email 或密碼錯誤，請確認 Firebase Authentication 使用者清單中的帳號。";
+  else if(e instanceof TypeError&&/fetch/i.test(e.message))message="連不到 Firebase 後端。請確認 Cloud Functions 已部署，且允許 https://hofong159.github.io 呼叫。";
   feedback("loginError",message,true);
  }
  finally{button.disabled=false;button.textContent=label}
 }
 async function showAdmin(){
  const p=$("#adminPanel");p.classList.remove("hidden");
- p.innerHTML='<div class="admin-tools"><h2>管理員設定中心</h2><div class="admin-nav"><button data-admin="settings">公告／開放設定</button><button data-admin="items">空間／設備</button><button data-admin="schedule">課表</button><button data-admin="bookings">申請與照片</button><button id="logoutBtn">登出</button></div><div id="adminContent"></div></div>';
- $$("[data-admin]").forEach(b=>b.onclick=()=>adminSection(b.dataset.admin));
+ p.innerHTML='<div class="admin-tools"><h2>管理員設定中心</h2><div class="admin-nav"><button data-admin="settings">公告／開放設定</button><button data-admin="items">空間／設備</button><button data-admin="schedule">課表</button><button data-admin="bookings">申請與照片</button><button data-admin="admins">管理員帳號</button><button id="logoutBtn">登出</button></div><div id="adminContent"></div></div>';
+ $("[data-admin]").forEach(b=>b.onclick=()=>adminSection(b.dataset.admin));
  $("#logoutBtn").onclick=async()=>{await sdk.signOut(auth);adminUser=null;p.classList.add("hidden");toast("已登出管理員")};
  await adminSection("settings");
 }
 async function adminSection(which){
  const c=$("#adminContent");
+ if(which==="admins"){
+  c.innerHTML='<h3>新增管理員帳號</h3><p class="muted">只允許已驗證 Email 且具有管理員權限的帳號新增其他管理員。新帳號建立後會先處於未驗證狀態；該管理員首次登入時系統會寄出驗證信，完成驗證後才可使用後台。</p>'+
+  '<label class="field">新管理員 Email *<input id="newAdminEmail" type="email" autocomplete="off" placeholder="admin@example.com" required></label>'+
+  '<label class="field">初始密碼（至少 12 個字元）*<input id="newAdminPassword" type="password" minlength="12" autocomplete="new-password" required></label>'+
+  '<label class="field">再次輸入初始密碼 *<input id="newAdminPassword2" type="password" minlength="12" autocomplete="new-password" required></label>'+
+  '<button class="primary" id="createAdminBtn">建立管理員</button><p id="createAdminMessage" class="feedback" role="status"></p>'+
+  '<div class="notice">安全提醒：請透過安全方式將新帳號資料交給本人；首次登入會寄驗證信。請勿共用帳號，並請每位管理員設定自己的密碼。</div>';
+  $("#createAdminBtn").onclick=async()=>{
+   const email=$("#newAdminEmail").value.trim(),password=$("#newAdminPassword").value,password2=$("#newAdminPassword2").value,button=$("#createAdminBtn");
+   if(!email||!password){feedback("createAdminMessage","請輸入 Email 與密碼。",true);return}
+   if(password.length<12){feedback("createAdminMessage","密碼至少需要 12 個字元。",true);return}
+   if(password!==password2){feedback("createAdminMessage","兩次輸入的密碼不一致。",true);return}
+   button.disabled=true;button.textContent="建立中…";
+   try{
+    const result=await callAdminApi("createAdminUser",{email,password});
+    $("#newAdminPassword").value="";$("#newAdminPassword2").value="";
+    feedback("createAdminMessage","已建立管理員："+result.email+"。首次登入時會寄出 Email 驗證信；完成驗證後才能進入後台。");
+    toast("管理員帳號已建立");
+   }catch(e){feedback("createAdminMessage",e.message||"建立管理員失敗。",true)}
+   finally{button.disabled=false;button.textContent="建立管理員"}
+  };
+ }
  if(which==="settings"){
   const s=config.settings||{},r=config.rules||{};
   c.innerHTML='<h3>開放狀態／公告與規範</h3><label class="check"><input id="microOpen" type="checkbox" '+(s.microOpen===false?"":"checked")+'>開放正修微工坊</label><label class="check"><input id="outputOpen" type="checkbox" '+(s.outputOpen===false?"":"checked")+'>開放出圖室</label><label class="field">網站公告<textarea id="siteNotice">'+esc(s.notice||"")+'</textarea></label>'+
