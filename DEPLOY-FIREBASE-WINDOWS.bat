@@ -5,21 +5,18 @@ title CSU Order System - Firebase Setup
 echo ================================================
 echo CSU Order System - Firebase backend deployment
 echo Students do NOT need to sign in.
-echo Only the admin username/password are stored as server secrets.
+echo Admin credentials are stored as Firebase Secrets.
 echo ================================================
 echo.
 where node >nul 2>nul
 if errorlevel 1 (
-  echo [ERROR] Node.js is not installed. Install Node.js 22 LTS first:
-  echo https://nodejs.org/
-  pause
-  exit /b 1
+  echo [ERROR] Node.js is not installed. Install Node.js 22 LTS first: https://nodejs.org/
+  goto fail
 )
 where npm >nul 2>nul
 if errorlevel 1 (
-  echo [ERROR] npm was not found. Reinstall Node.js 22 LTS and restart this window.
-  pause
-  exit /b 1
+  echo [ERROR] npm was not found. Reinstall Node.js 22 LTS and reopen this window.
+  goto fail
 )
 where firebase >nul 2>nul
 if errorlevel 1 (
@@ -43,8 +40,8 @@ if errorlevel 1 (popd & goto fail)
 popd
 echo.
 echo [4/5] Enter administrator credentials into Firebase Secret Manager.
-echo The following commands prompt you for values. Enter your existing admin username first, then its password.
-echo Do NOT paste these credentials into GitHub or this chat.
+echo At the prompts, enter the existing admin username, then password.
+echo Do NOT paste credentials into GitHub or this chat.
 call firebase functions:secrets:set ADMIN_USERNAME
 if errorlevel 1 goto fail
 call firebase functions:secrets:set ADMIN_PASSWORD
@@ -54,13 +51,17 @@ echo [5/5] Deploy Firebase Functions and security rules.
 call firebase deploy --only functions,firestore:rules,storage
 if errorlevel 1 goto fail
 echo.
-echo SUCCESS: Firebase deployment command finished.
-echo If the output lists Function URLs, check adminLogin and publicBookingApi are deployed.
-echo Then reopen https://hofong159.github.io/csu-arch-order-gpt/
-pause
-exit /b 0
+echo ================================================
+echo DEPLOY COMMAND COMPLETED. Review messages above.
+echo Look for URLs for adminLogin and publicBookingApi.
+echo The command window will remain open for inspection.
+echo ================================================
+goto keepopen
 :fail
 echo.
-echo [FAILED] Deployment did not complete. Keep this window open and send me the red error text (hide any secrets).
-pause
-exit /b 1
+echo [FAILED] A command returned an error. Read the messages above.
+echo Please screenshot the error text, but hide passwords or secrets.
+:keepopen
+echo.
+echo The console will remain open. Type EXIT when you want to close it.
+cmd /k
