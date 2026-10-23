@@ -1,33 +1,31 @@
-# 管理員 Email／密碼登入設定
+# 免費方案設定：Firebase Email／密碼管理員
 
-學生端完全免登入。管理員使用 Email 與密碼登入；管理員 Email 必須完成驗證才能操作後台。只有已驗證且有 `admin` 權限的管理員，才可在後台建立其他管理員。
+學生完全免登入。此版本只使用 Firebase Authentication 與 Cloud Firestore，不使用 Cloud Functions、Secret Manager 或 Cloud Storage，也不需要升級 Blaze。
 
-## 一、設定 Email/Password 登入方式
+## 第一次設定
 
-1. 開啟 [Firebase Authentication](https://console.firebase.google.com/project/csu-order-system-af6bb/authentication/providers)。
-2. 在「登入方式」點選「電子郵件／密碼」，啟用後儲存。不要啟用匿名登入，學生不用登入。
-3. 到「使用者」頁籤，點「新增使用者」，先建立你自己的初始管理員 Email 與密碼。請使用你本人能收信的 Email。
-4. 下載最新專案並解壓縮；在根目錄雙擊 `DEPLOY-FIREBASE-WINDOWS.bat`。
-5. 腳本會要求輸入 `INITIAL_ADMIN_EMAIL`。此值必須與剛才在 Authentication 建立的初始管理員 Email 完全相同。
-6. 腳本會部署 Firebase Functions、Firestore Rules 與 Storage Rules。若 Firebase 要求計費方案，請先完成專案帳務設定。
+1. 開啟 Firebase Authentication → 登入方式：https://console.firebase.google.com/project/csu-order-system-af6bb/authentication/providers
+2. 啟用「電子郵件／密碼（Email/Password）」。不要啟用 Anonymous。
+3. 在 Authentication → Users 確認初始管理員 `hofong159@gmail.com` 已建立。Firestore Rules 將此 Email 設為初始管理員。
+4. 確認 Cloud Firestore Database 已建立。
+5. 下載最新 Repository ZIP 並解壓縮；在根目錄雙擊 `DEPLOY-FIREBASE-WINDOWS.bat`。此腳本只部署 Firestore Rules，不會要求信用卡，不會部署 Cloud Functions。
+6. 打開 https://hofong159.github.io/csu-arch-order-gpt/ ，點管理員後台，用初始管理員 Email 和 Firebase 密碼登入。
 
-## 二、初始管理員第一次登入
+## 新增其他管理員
 
-1. 開啟 https://hofong159.github.io/csu-arch-order-gpt/ ，點「管理員後台」，使用上述 Email 與密碼登入。
-2. 如果信箱尚未驗證，網站會寄出 Firebase 驗證信並登出。打開信件，點驗證連結。
-3. 回到網站再登入一次。後端會檢查 Email 是否與 `INITIAL_ADMIN_EMAIL` 相同，然後授予初始管理員權限。
+初始管理員登入後，選「管理員帳號」，填入新管理員 Email、初始密碼和再次確認密碼，再按新增。此版本不要求驗證信箱；新管理員可直接使用 Email／密碼登入。只有已授權的管理員可以新增或移除管理員權限。
 
-## 三、在後台新增其他管理員
+## 不需也不要設定的項目
 
-1. 初始管理員登入後，打開「管理員帳號」。
-2. 輸入新管理員的 Email、初始密碼（至少 12 個字元），再確認一次密碼。
-3. 將帳號資訊安全地交給新管理員。新管理員第一次登入時，網站會自動寄出驗證信並拒絕未驗證的登入；完成驗證後再登入，即可使用後台。
-4. 管理員權限透過 Firebase Admin SDK 在後端授予，不會由前端自行設定。
+- 不需要升級 Firebase Blaze、不需要信用卡。
+- 不需要設定 `ADMIN_USERNAME`、`ADMIN_PASSWORD` 或 `INITIAL_ADMIN_EMAIL` Secret。
+- 不需要部署 Cloud Functions、Cloud Storage Rules 或 Storage CORS。
+- 不需要啟用匿名登入。
 
-## 四、部署後仍需確認
+## 照片和免費方案的限制
 
-- 在 Authentication → Settings → Authorized domains 確認包含 `hofong159.github.io`。
-- 如果第一次部署後還看得到舊的 `adminLogin` 函式，這是舊版遺留函式；新版網站不再使用它。
-- 登入 API 應有 `bootstrapAdmin` 與 `createAdminUser`；學生預約 API 為 `publicBookingApi`。
-- 任何管理員被授權後都具有管理權限，請只新增可信任的人員。管理員移除／停權功能目前未加入本版。
-- 不要把密碼寫進 GitHub、程式碼、截圖或聊天內容。
+簽退時最多上傳 5 張壓縮照片。照片以 Firestore 子文件儲存，以避開 Firebase Cloud Storage 的 Blaze 要求。照片最多 700 KB／張；超過 7 天的照片會在管理員開啟後台時清除。沒有後端排程服務的免費版本，不能保證無論管理員是否上線都會在第 7 天準時刪除。
+
+## 注意
+
+公開預約使用 32 碼隨機查詢碼作為存取憑證。請妥善保存，不要分享；取得查詢碼的人可能查看該筆申請。Firestore 規則已限制公開查詢只能透過指定代碼讀取，不能列出所有申請。
