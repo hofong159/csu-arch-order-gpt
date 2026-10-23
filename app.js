@@ -318,7 +318,7 @@ async function showAdmin(){
     }
   };
   await adminSection("settings");
-  $("#adminPanel button[data-admin]").forEach(b=>b.classList.toggle("active",b.dataset.admin==="settings"));
+  $("[data-admin]").forEach(b=>b.classList.toggle("active",b.dataset.admin==="settings"));
 }
 async function seedBaselineData(){
   const button=$("#seedBaselineBtn"), original=button?.textContent||"匯入預設空間、課表與原站借用紀錄";
@@ -509,7 +509,7 @@ async function adminSection(which){
   }
   if(which==="items"){
     c.innerHTML='<h3>新增空間／設備</h3><div class="grid"><label class="field">名稱<input id="newName"></label><label class="field">分類<select id="newCategory"><option value="booking">設計教室</option><option value="micro">正修微工坊</option><option value="output">出圖室</option><option value="all">全部分類</option></select></label></div><label class="field">說明／用途<input id="newDesc"></label><label class="check"><input id="newAvailable" type="checkbox" checked>目前可用</label><button id="addItem" class="primary">新增項目</button><h3>既有項目（可編輯）</h3><div class="table-wrap"><table><thead><tr><th>名稱／說明</th><th>分類</th><th>狀態</th><th>操作</th></tr></thead><tbody>'+
-      config.items.map(i=>'<tr><td><input data-name="'+esc(i.id)+'" value="'+esc(i.name)+'"><input data-desc="'+esc(i.id)+'" value="'+esc(i.description||"")+'" placeholder="說明"></td><td><select data-cat="'+esc(i.id)+'">'+["booking","borrowing","micro","output","all"].map(k=>'<option value="'+k+'" '+(i.category===k?"selected":"")+'>'+k+'</option>').join("")+'</select></td><td><input data-avail="'+esc(i.id)+'" type="checkbox" '+(i.available===false?"":"checked")+'></td><td><button class="secondary" data-saveitem="'+esc(i.id)+'">儲存</button><button class="danger" data-delitem="'+esc(i.id)+'">刪除</button></td></tr>').join("")+
+      config.items.map(i=>'<tr><td><input data-name="'+esc(i.id)+'" value="'+esc(i.name)+'"><input data-desc="'+esc(i.id)+'" value="'+esc(i.description||"")+'" placeholder="說明"></td><td><select data-cat="'+esc(i.id)+'">'+["booking","borrowing","micro","output","all"].map(k=>'<option value="'+k+'" '+(i.category===k?"selected":"")+'">'+({booking:"設計教室",borrowing:"舊雙向借用（停用）",micro:"正修微工坊",output:"出圖室",all:"全部分類"}[k])+'</option>').join("")+'</select></td><td><input data-avail="'+esc(i.id)+'" type="checkbox" '+(i.available===false?"":"checked")+'></td><td><button class="secondary" data-saveitem="'+esc(i.id)+'">儲存</button><button class="danger" data-delitem="'+esc(i.id)+'">刪除</button></td></tr>').join("")+
       '</tbody></table></div><p class="muted">原站匯出碼未包含完整機具清單；空間可由「初始資料匯入」建立，機具請依現場設備逐項新增。</p>';
     $("#addItem").onclick=async()=>{const name=$("#newName").value.trim();if(!name)return toast("請輸入名稱");try{await sdk.addDoc(sdk.collection(db,"items"),{name,category:$("#newCategory").value,description:$("#newDesc").value,available:$("#newAvailable").checked,updatedAt:sdk.serverTimestamp()});await loadConfig();await adminSection("items");render();toast("項目已新增")}catch(e){toast("新增失敗："+friendlyError(e))}};
     $$("[data-saveitem]").forEach(b=>b.onclick=async()=>{const id=b.dataset.saveitem;try{await sdk.updateDoc(sdk.doc(db,"items",id),{name:$("[data-name='"+id+"']",c).value.trim(),description:$("[data-desc='"+id+"']",c).value,category:$("[data-cat='"+id+"']",c).value,available:$("[data-avail='"+id+"']",c).checked,updatedAt:sdk.serverTimestamp()});await loadConfig();await adminSection("items");render();toast("項目已更新")}catch(e){toast("更新失敗："+friendlyError(e))}});
