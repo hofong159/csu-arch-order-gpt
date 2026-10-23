@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#172b3a">
 <meta name="description" content="正修建築空間預約、設備借用與工坊管理平台">
 <title>正修建築｜空間預約與設備借用</title>
-<link rel="stylesheet" href="styles.css?v=20261024-admin-tabs-v4">
+<link rel="stylesheet" href="styles.css?v=20261024-admin-tabs-v5">
 </head>
 <body>
 <header class="topbar">
@@ -45,7 +45,7 @@
 <div id="toast" class="toast" role="status"></div>
 <script>
 (function(){
-  var labels={booking:"空間預約",borrowing:"雙向借用",micro:"借用正修微工坊",output:"借用出圖室",records:"我的申請／簽到簽退"};
+  var labels={booking:"空間預約",micro:"借用正修微工坊",output:"借用出圖室",records:"我的申請／簽到簽退"};
   var ready=false, status=document.getElementById("startupStatus");
   window.addEventListener("csu-app-ready",function(){ready=true;if(status)status.classList.add("hidden");});
   window.addEventListener("error",function(e){if(status){status.classList.remove("hidden");status.textContent="網頁互動程式發生錯誤："+(e.message||"未知錯誤")+"。請查看 GitHub Actions 部署紀錄。";}});
@@ -70,6 +70,6 @@
   },5000);
 })();
 </script>
-<script defer src="app.js?v=20261024-admin-tabs-v4"></script>
+<script defer src="app.js?v=20261024-admin-tabs-v5"></script>
 </body>
 </html>
