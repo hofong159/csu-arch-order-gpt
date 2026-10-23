@@ -63,6 +63,10 @@ service cloud.firestore {
         && request.resource.data.className is string
         && request.resource.data.phone is string
         && request.resource.data.itemId is string
+        && get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.available == true
+        && (get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.category == request.resource.data.type ||
+            get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.category == 'all')
+        && get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.name == request.resource.data.item
         && request.resource.data.date is string
         && request.resource.data.start is string
         && request.resource.data.hours in [3,6]
