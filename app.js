@@ -264,7 +264,7 @@ async function loginAdmin(){
 }
 async function showAdmin(){
   const p=$("#adminPanel");p.classList.remove("hidden");
-  p.innerHTML='<div class="admin-tools"><h2>管理員設定中心</h2><div class="admin-nav"><button data-admin="settings">公告／開放設定</button><button data-admin="items">空間／設備</button><button data-admin="schedule">課表</button><button data-admin="bookings">申請與照片</button><button data-admin="admins">管理員帳號</button><button id="logoutBtn">登出</button></div><div id="adminContent"></div></div>';
+  p.innerHTML='<div class="admin-tools"><h2>管理員設定中心</h2><div class="admin-nav"><button data-admin="settings">公告／開放設定</button><button data-admin="items">空間／設備</button><button data-admin="schedule">課表</button><button data-admin="bookings">申請與照片</button><button data-admin="seed">初始資料匯入</button><button data-admin="admins">管理員帳號</button><button id="logoutBtn">登出</button></div><div id="adminContent"></div></div>';
   $$("[data-admin]").forEach(b=>b.onclick=()=>adminSection(b.dataset.admin));
   $("#logoutBtn").onclick=async()=>{await sdk.signOut(auth);adminUser=null;p.classList.add("hidden");toast("已登出管理員")};
   await adminSection("settings");
@@ -421,12 +421,40 @@ async function adminSection(which){
     $("#createAdminBtn").onclick=createAdmin;
     loadAdminList();
   }
+  if(which==="seed"){
+    c.innerHTML='<h3>預載原站空間與課表</h3>'+
+      '<p>此操作會將你提供的 2026/10/24 課表、九樓設計教室 A–H 區、總評一／二區，以及原站畫面中兩筆有效借用紀錄寫入目前 Firebase 的 Firestore。</p>'+
+      '<p>不會刪除其他設定。已存在的同名區域和相同課表會沿用；重複按下不會重複新增原站借用。</p>'+
+      '<div class="notice"><b>匯入內容：</b>10 個區域；17 筆正課；A 區小組借用（2026/10/23 23:30–10/24 11:30）；H 區單人借用（2026/10/22 17:00–10/27 17:00）。E、G、總評一／二區依你提供的內容不新增正課。</div>'+
+      '<p class="muted">你提供的原站輸出碼沒有包含 Apps Script 後端回傳的完整空間資料清單，因此只預載你明確提供的區域名稱和紀錄，不自行猜測機器清單。</p>'+
+      '<button id="seedBaselineBtn" class="primary">一鍵匯入空間、課表與借用紀錄</button>'+
+      '<p id="seedMessage" class="feedback" role="status" aria-live="polite"></p>';
+    $("#seedBaselineBtn").onclick=seedBaselineData;
+  }
   if(which==="settings"){
     const s=config.settings||{},r=config.rules||{};
-    c.innerHTML='<h3>開放狀態／公告</h3><label class="check"><input id="microOpen" type="checkbox" '+(s.microOpen===false?"":"checked")+'>開放正修微工坊</label><label class="check"><input id="outputOpen" type="checkbox" '+(s.outputOpen===false?"":"checked")+'>開放出圖室</label><label class="field">公告／提醒<textarea id="siteNotice">'+esc(s.notice||"")+'</textarea></label>'+
+    c.innerHTML='<h3>開放狀態／公告</h3><p class="muted">修改後按「儲存設定」。若 Firestore 規則不允許寫入，錯誤會直接顯示在此處。</p>'+
+      '<label class="check"><input id="microOpen" type="checkbox" '+(s.microOpen===false?"":"checked")+'>開放正修微工坊</label>'+
+      '<label class="check"><input id="outputOpen" type="checkbox" '+(s.outputOpen===false?"":"checked")+'>開放出圖室</label>'+
+      '<label class="field">公告／提醒<textarea id="siteNotice">'+esc(s.notice||"")+'</textarea></label>'+
       ["booking","borrowing","micro","output"].map(k=>'<label class="field">'+labels[k]+'規範<textarea id="rule_'+k+'">'+esc(r[k]||defaultRules[k])+'</textarea></label>').join("")+
-      '<button id="saveSettings" class="primary">儲存設定</button>';
-    $("#saveSettings").onclick=async()=>{try{await sdk.setDoc(sdk.doc(db,"settings","public"),{settings:{microOpen:$("#microOpen").checked,outputOpen:$("#outputOpen").checked,notice:$("#siteNotice").value},rules:Object.fromEntries(["booking","borrowing","micro","output"].map(k=>[k,$("#rule_"+k).value]))},{merge:true});await loadConfig();render();toast("設定已儲存")}catch(e){toast("儲存失敗："+friendlyError(e))}};
+      '<button id="saveSettings" class="primary">儲存設定</button> <button id="settingsSeedButton" class="secondary">一鍵預載空間／課表</button>'+
+      '<p id="settingsMessage" class="feedback" role="status" aria-live="polite"></p>';
+    $("#saveSettings").onclick=async()=>{
+      const button=$("#saveSettings");button.disabled=true;
+      try{
+        await sdk.setDoc(sdk.doc(db,"settings","public"),{
+          settings:{microOpen:$("#microOpen").checked,outputOpen:$("#outputOpen").checked,notice:$("#siteNotice").value},
+          rules:Object.fromEntries(["booking","borrowing","micro","output"].map(k=>[k,$("#rule_"+k).value]))
+        },{merge:true});
+        await loadConfig();
+        feedback("settingsMessage","設定已成功儲存至 Firebase。");
+        toast("設定已儲存");
+      }catch(e){
+        feedback("settingsMessage","儲存失敗："+friendlyError(e)+"。如果是 permission-denied，請確認已發布最新版 firestore.rules。",true);
+      }finally{button.disabled=false}
+    };
+    $("#settingsSeedButton").onclick=()=>adminSection("seed");
   }
   if(which==="items"){
     c.innerHTML='<h3>新增空間／設備</h3><div class="grid"><label class="field">名稱<input id="newName"></label><label class="field">分類<select id="newCategory"><option value="booking">設計教室</option><option value="borrowing">雙向借用</option><option value="micro">正修微工坊</option><option value="output">出圖室</option><option value="all">全部分類</option></select></label></div><label class="field">說明／用途<input id="newDesc"></label><label class="check"><input id="newAvailable" type="checkbox" checked>目前可用</label><button id="addItem" class="primary">新增項目</button><h3>既有項目（可編輯）</h3><div class="table-wrap"><table><thead><tr><th>名稱／說明</th><th>分類</th><th>狀態</th><th>操作</th></tr></thead><tbody>'+
