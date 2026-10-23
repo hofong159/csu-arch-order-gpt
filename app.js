@@ -505,7 +505,7 @@ async function adminSection(which){
         feedback("settingsMessage","儲存失敗："+friendlyError(e)+"。如果是 permission-denied，請確認已發布最新版 firestore.rules。",true);
       }finally{button.disabled=false}
     };
-    $("#settingsSeedButton").onclick=()=>adminSection("seed");
+    $("#settingsSeedButton").onclick=()=>$("#quickSeedBtn")?.click();
   }
   if(which==="items"){
     c.innerHTML='<h3>新增空間／設備</h3><div class="grid"><label class="field">名稱<input id="newName"></label><label class="field">分類<select id="newCategory"><option value="booking">設計教室</option><option value="micro">正修微工坊</option><option value="output">出圖室</option><option value="all">全部分類</option></select></label></div><label class="field">說明／用途<input id="newDesc"></label><label class="check"><input id="newAvailable" type="checkbox" checked>目前可用</label><button id="addItem" class="primary">新增項目</button><h3>既有項目（可編輯）</h3><div class="table-wrap"><table><thead><tr><th>名稱／說明</th><th>分類</th><th>狀態</th><th>操作</th></tr></thead><tbody>'+
