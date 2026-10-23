@@ -36,3 +36,16 @@
 - 原始 HTML 輸出碼沒有動態空間清單或 Apps Script 後端；請在管理員後台按原站真實資料建立清單。
 - Firestore Spark 免費額度有限。若管理員登入／新增資料出現 `permission-denied`，檢查 Firestore Rules 是否已部署成功。
 - 學生公開查詢依靠 32 碼隨機查詢碼；請妥善保存，不要分享。
+
+## Firestore 已經建立，不要再建一次
+
+Firebase Console 截圖已確認資料庫為 `(default)`，位置 `nam5`。先前 CLI 嘗試建立已存在的資料庫而回報 403；這不是證明資料庫不存在，也不需要升級計費。
+
+目前 Console 的 Security Rules 畫面仍顯示測試規則，允許任何人在 2026-11-20 前讀寫。請立即更換：
+
+1. 開啟 https://console.firebase.google.com/project/csu-order-system-af6bb/firestore/databases/-default-/rules
+2. 在另一個分頁開啟 https://raw.githubusercontent.com/hofong159/csu-arch-order-gpt/main/firestore.rules ，按 Ctrl+A、Ctrl+C。
+3. 回規則編輯器按 Ctrl+A、Ctrl+V，貼上全部內容，再按 Publish／發布。
+4. 不用重跑會嘗試建立資料庫的舊 CLI 腳本。若 Console 規則編譯錯誤，截圖錯誤訊息再處理。
+
+可選的唯讀 CLI 診斷命令：`firebase login:list` 和 `firebase firestore:databases:list --project csu-order-system-af6bb`。CMD 先前顯示的登入帳號是 `51237128@gcloud.csu.edu.tw`；若 CLI 看不到資料庫，可能是這個 CLI 身分與 Console 帳號的存取權不同。
