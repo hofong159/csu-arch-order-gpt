@@ -19,23 +19,22 @@ Repository: https://github.com/hofong159/csu-arch-order-gpt
 
 目前網站直接使用根目錄的 `app.js`；修改後推送至 `main` 即會自動部署。舊的壓縮檔為早期原型，正式部署不再使用。
 
-## B. Firebase 設定（學生免登入）
+## B. Firebase 設定（學生免登入、管理員 Email/Password）
 前端 Firebase 設定已指向 `csu-order-system-af6bb`。`apiKey` 是 Firebase Web SDK 的前端識別設定，不是 Admin SDK 私鑰；仍建議在 Google Cloud Console 限制 API key 的 HTTP referrer，至少允許 `https://hofong159.github.io/*`，並只啟用必要 API。
 
-1. 在 [Firebase Console](https://console.firebase.google.com/project/csu-order-system-af6bb) 確認專案可存取。
-2. 建立 Firestore Database，並啟用 Storage。
-3. 不需要在 Authentication → Sign-in method 啟用 Anonymous，也不需要建立學生帳號。學生直接填表，後端使用申請時發出的查詢碼保護個人申請。
-4. 依照 [ADMIN-LOGIN-SETUP.md](ADMIN-LOGIN-SETUP.md) 設定管理員帳號與密碼 Secret，並部署 `adminLogin` 和 `publicBookingApi` Cloud Functions。
-5. 部署本專案的 `firestore.rules` 和 `storage.rules`。管理員權限由後端簽發的自訂登入權杖授權，不需要建立 Email/Password 管理員帳號，也不應把管理員密碼放在公開程式碼。
+1. 在 [Firebase Console 的 Authentication 登入方式](https://console.firebase.google.com/project/csu-order-system-af6bb/authentication/providers) 啟用 **電子郵件／密碼（Email/Password）**。不需要啟用 Anonymous，學生完全免登入。
+2. 在 Authentication → Users 新增你自己的初始管理員 Email 與密碼。使用你本人能收信的 Email，因為系統會要求驗證信箱。
+3. 在專案根目錄執行 `DEPLOY-FIREBASE-WINDOWS.bat`；當腳本詢問 `INITIAL_ADMIN_EMAIL` 時，輸入剛才建立的同一個 Email。腳本會部署 `bootstrapAdmin`、`createAdminUser`、`publicBookingApi` 等 Cloud Functions，以及 Firestore／Storage Rules。
+4. 初始管理員第一次登入會自動寄出驗證信。先點信件中的驗證連結，再回到網站登入一次；後端會將此 Email 設為初始管理員。
+5. 初始管理員登入後，可在管理員後台的「管理員帳號」新增其他 Email／密碼。新管理員第一次登入時也會收到驗證信；完成驗證後才可使用管理功能。
 6. 在 Authentication → Settings → Authorized domains 確認包含 `hofong159.github.io`。
-7. 管理員登入後，在「管理員後台 → 空間／設備項目」依原站實際資料新增各空間、設備與機器，再匯入正式課表。
 
-注意：GitHub Pages 部署成功不代表 Firebase Cloud Functions 已部署。請在完成 Functions 部署及 Rules 發布後，才開始實際測試預約、查詢、簽到簽退與管理功能。
+注意：GitHub Pages 部署成功不代表 Firebase Cloud Functions 已部署。請等 Firebase 部署成功後，再測試管理員登入、建立管理員、預約及資料管理。管理員權限由伺服器端 Firebase Admin SDK 設定，前端不能自行提升權限。
 
 ## C. 部署照片七天自動清理
 簽退時會記錄 photoDeleteAfter，但 GitHub Pages 本身不會定時刪檔。functions 內附 Firebase Cloud Function，每天台灣時間 03:20 刪除已超過保留期限的 Storage 照片並清空紀錄中的照片連結。
 
-需要 Node.js 22、Firebase CLI 與 Google Cloud CLI。請依照 [管理員登入設定](ADMIN-LOGIN-SETUP.md) 設定 `ADMIN_USERNAME`、`ADMIN_PASSWORD` Secrets，並部署 Functions、Firestore Rules 與 Storage Rules。學生照片使用短效簽名網址上傳；請依 `storage-cors.json` 設定 Storage bucket 的 CORS：
+需要 Node.js 22 與 Firebase CLI。請依照 [管理員登入設定](ADMIN-LOGIN-SETUP.md) 啟用 Email/Password、建立初始管理員使用者，並設定 `INITIAL_ADMIN_EMAIL` Secret，再部署 Functions、Firestore Rules 與 Storage Rules。學生照片使用短效簽名網址上傳；請依 `storage-cors.json` 設定 Storage bucket 的 CORS：
 
     gcloud storage buckets update gs://csu-order-system-af6bb.firebasestorage.app --cors-file=storage-cors.json
 
@@ -44,6 +43,7 @@ Repository: https://github.com/hofong159/csu-arch-order-gpt
 ## D. 正式使用前必測
 - 原始匯出碼沒有動態空間清單與 Apps Script 後端，項目和正式課表需要管理員補齊。
 - 學生端免登入，使用申請時取得的隨機查詢碼加上手機號碼保護紀錄。查詢碼只顯示一次，遺失後無法由公開畫面取回。
+- 管理員使用 Firebase Email/Password 登入，並必須先驗證 Email；初始管理員透過 `INITIAL_ADMIN_EMAIL` 一次性設定，登入後可在管理員後台建立其他管理員。
 - 預約、課表檢查及時段鎖由 Cloud Functions 使用 Admin SDK 執行；正式使用前需測試跨日、同時送件、課表匯入與拒絕申請後釋放鎖定。
 - 上線前實測：送件、核准、簽到、簽退、照片上傳、七天清理、關閉空間、課表衝突與資料權限。
 
