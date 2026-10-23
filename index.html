@@ -35,8 +35,8 @@
   <div class="modal-card">
     <button id="adminClose" class="modal-close" aria-label="關閉">×</button>
     <h2 id="adminTitle">管理員後台</h2>
-    <p class="muted">學生免登入。管理員請使用專用帳號與密碼登入。</p>
-    <label class="field">管理員帳號<input id="adminEmail" type="text" autocomplete="username" placeholder="輸入管理員帳號"></label>
+    <p class="muted">學生免登入。管理員請使用 Email 與密碼登入；首次登入需驗證信箱。</p>
+    <label class="field">管理員 Email<input id="adminEmail" type="email" autocomplete="username" placeholder="admin@example.com" required></label>
     <label class="field">密碼<input id="adminPassword" type="password" autocomplete="current-password"></label>
     <button id="loginBtn" class="primary full">登入後台</button>
     <p id="loginError" class="error"></p>
