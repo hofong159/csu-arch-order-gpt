@@ -29,6 +29,9 @@ call firebase use csu-order-system-af6bb
 if errorlevel 1 goto fail
 echo.
 echo [3/3] Deploy Firestore security rules only. This does NOT require Blaze billing.
+echo IMPORTANT: If this reports it is creating Firestore database (default),
+echo stop here and create the (default) Standard database in Firebase Console first.
+echo Do not upgrade billing. See README.md for exact Console steps.
 call firebase deploy --only firestore:rules
 if errorlevel 1 goto fail
 echo.
