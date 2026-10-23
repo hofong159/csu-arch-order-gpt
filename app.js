@@ -5,7 +5,7 @@ const $$ = (s, root=document) => [...root.querySelectorAll(s)];
 const INITIAL_ADMIN_EMAIL = "hofong159@gmail.com";
 let sdk = {}, app = null, auth = null, db = null, firebaseConfig = null;
 let config = {items:[], rules:{}, settings:{}}, currentView = "booking", adminUser = null;
-const labels = {booking:"空間預約", borrowing:"雙向借用", micro:"借用正修微工坊", output:"借用出圖室", records:"我的申請／簽到簽退"};
+const labels = {booking:"空間預約", micro:"借用正修微工坊", output:"借用出圖室", records:"我的申請／簽到簽退"};
 const BASELINE_SPACES = [
   {code:"A", name:"A區"},
   {code:"B", name:"B區"},
@@ -96,7 +96,6 @@ function render(){
   $$(".tab").forEach(b=>b.classList.toggle("active",b.dataset.view===currentView));
   const v=$("#view");if(!v)return;
   if(currentView==="booking")v.innerHTML=requestForm("booking","正修建築圖科九樓設計教室空間預約");
-  else if(currentView==="borrowing")v.innerHTML=requestForm("borrowing","設備借還登記（雙向借用）");
   else if(currentView==="micro"||currentView==="output"){
     const closed=config.settings[currentView+"Open"]===false;
     const cards=getItems(currentView).map(i=>'<article class="item"><h3>'+esc(i.name)+'</h3><span class="status '+(i.available===false?"off":"")+'">'+(i.available===false?"目前不可用":"可用")+'</span><p>'+esc(i.description||"請依現場公告及管理員指示使用。")+'</p></article>').join("");
@@ -264,9 +263,61 @@ async function loginAdmin(){
 }
 async function showAdmin(){
   const p=$("#adminPanel");p.classList.remove("hidden");
-  p.innerHTML='<div class="admin-tools"><h2>管理員設定中心</h2><div class="admin-nav"><button data-admin="settings">公告／開放設定</button><button data-admin="items">空間／設備</button><button data-admin="schedule">課表</button><button data-admin="bookings">申請與照片</button><button data-admin="seed">初始資料匯入</button><button data-admin="admins">管理員帳號</button><button id="logoutBtn">登出</button></div><div id="adminContent"></div></div>';
-  $$("[data-admin]").forEach(b=>b.onclick=()=>adminSection(b.dataset.admin));
-  $("#logoutBtn").onclick=async()=>{await sdk.signOut(auth);adminUser=null;p.classList.add("hidden");toast("已登出管理員")};
+  $("#adminEmail")?.closest("label")?.classList.add("hidden");
+  $("#adminPassword")?.closest("label")?.classList.add("hidden");
+  $("#loginBtn")?.classList.add("hidden");
+  $("#loginError")?.classList.add("hidden");
+  p.innerHTML='<div class="admin-tools">'+
+    '<h2>管理員設定中心</h2>'+
+    '<div class="admin-quick-actions">'+
+      '<div><b>原站資料匯入</b><p class="muted">一鍵加入 A–H 區、總評區、2026/10/24 課表及兩筆有效借用紀錄。</p></div>'+
+      '<button type="button" id="quickSeedBtn" class="primary">匯入初始資料</button>'+
+    '</div>'+
+    '<div class="admin-nav" role="group" aria-label="管理員功能">'+
+      '<button type="button" data-admin="settings">公告／開放設定</button>'+
+      '<button type="button" data-admin="items">空間／設備</button>'+
+      '<button type="button" data-admin="schedule">課表</button>'+
+      '<button type="button" data-admin="bookings">申請與照片</button>'+
+      '<button type="button" data-admin="seed">初始資料匯入</button>'+
+      '<button type="button" data-admin="admins">管理員帳號</button>'+
+      '<button type="button" id="logoutBtn">登出</button>'+
+    '</div>'+
+    '<div id="adminActionMessage" class="feedback hidden" role="status" aria-live="polite"></div>'+
+    '<div id="adminContent" aria-live="polite"></div></div>';
+  // Delegate clicks from the panel itself. This survives innerHTML refreshes and avoids
+  // lost listeners when navigating between admin sections.
+  p.onclick=async(event)=>{
+    const quick=event.target.closest&&event.target.closest("#quickSeedBtn");
+    const tab=event.target.closest&&event.target.closest("button[data-admin]");
+    if(quick||tab){
+      event.preventDefault();
+      const which=quick?"seed":tab.dataset.admin;
+      $$("#adminPanel button[data-admin]").forEach(b=>b.classList.toggle("active",b===tab));
+      const msg=$("#adminActionMessage");
+      if(msg){msg.classList.remove("hidden","error");msg.textContent="正在載入「"+(quick?"初始資料匯入":tab.textContent.trim())+"」…"}
+      try{
+        await adminSection(which);
+        if(msg){msg.classList.add("hidden");msg.textContent=""}
+      }catch(err){
+        const content=$("#adminContent");
+        const message=friendlyError(err);
+        if(content)content.innerHTML='<div class="feedback error">無法開啟功能：'+esc(message)+'<br>請確認 Firestore Rules 已發布，且管理員帳號具有讀取權限。</div>';
+        if(msg){msg.classList.remove("hidden");msg.classList.add("error");msg.textContent="載入失敗："+message}
+      }
+      return;
+    }
+  };
+  $("#quickSeedBtn").onclick=null;
+  $("#logoutBtn").onclick=async()=>{
+    try{await sdk.signOut(auth)}finally{
+      adminUser=null;p.classList.add("hidden");
+      $("#adminEmail")?.closest("label")?.classList.remove("hidden");
+      $("#adminPassword")?.closest("label")?.classList.remove("hidden");
+      $("#loginBtn")?.classList.remove("hidden");
+      $("#loginError")?.classList.remove("hidden");
+      toast("已登出管理員");
+    }
+  };
   await adminSection("settings");
 }
 async function seedBaselineData(){
@@ -437,7 +488,7 @@ async function adminSection(which){
       '<label class="check"><input id="microOpen" type="checkbox" '+(s.microOpen===false?"":"checked")+'>開放正修微工坊</label>'+
       '<label class="check"><input id="outputOpen" type="checkbox" '+(s.outputOpen===false?"":"checked")+'>開放出圖室</label>'+
       '<label class="field">公告／提醒<textarea id="siteNotice">'+esc(s.notice||"")+'</textarea></label>'+
-      ["booking","borrowing","micro","output"].map(k=>'<label class="field">'+labels[k]+'規範<textarea id="rule_'+k+'">'+esc(r[k]||defaultRules[k])+'</textarea></label>').join("")+
+      ["booking","micro","output"].map(k=>'<label class="field">'+labels[k]+'規範<textarea id="rule_'+k+'">'+esc(r[k]||defaultRules[k])+'</textarea></label>').join("")+
       '<button id="saveSettings" class="primary">儲存設定</button> <button id="settingsSeedButton" class="secondary">一鍵預載空間／課表</button>'+
       '<p id="settingsMessage" class="feedback" role="status" aria-live="polite"></p>';
     $("#saveSettings").onclick=async()=>{
@@ -445,7 +496,7 @@ async function adminSection(which){
       try{
         await sdk.setDoc(sdk.doc(db,"settings","public"),{
           settings:{microOpen:$("#microOpen").checked,outputOpen:$("#outputOpen").checked,notice:$("#siteNotice").value},
-          rules:Object.fromEntries(["booking","borrowing","micro","output"].map(k=>[k,$("#rule_"+k).value]))
+          rules:Object.fromEntries(["booking","micro","output"].map(k=>[k,$("#rule_"+k).value]))
         },{merge:true});
         await loadConfig();
         feedback("settingsMessage","設定已成功儲存至 Firebase。");
@@ -457,7 +508,7 @@ async function adminSection(which){
     $("#settingsSeedButton").onclick=()=>adminSection("seed");
   }
   if(which==="items"){
-    c.innerHTML='<h3>新增空間／設備</h3><div class="grid"><label class="field">名稱<input id="newName"></label><label class="field">分類<select id="newCategory"><option value="booking">設計教室</option><option value="borrowing">雙向借用</option><option value="micro">正修微工坊</option><option value="output">出圖室</option><option value="all">全部分類</option></select></label></div><label class="field">說明／用途<input id="newDesc"></label><label class="check"><input id="newAvailable" type="checkbox" checked>目前可用</label><button id="addItem" class="primary">新增項目</button><h3>既有項目（可編輯）</h3><div class="table-wrap"><table><thead><tr><th>名稱／說明</th><th>分類</th><th>狀態</th><th>操作</th></tr></thead><tbody>'+
+    c.innerHTML='<h3>新增空間／設備</h3><div class="grid"><label class="field">名稱<input id="newName"></label><label class="field">分類<select id="newCategory"><option value="booking">設計教室</option><option value="micro">正修微工坊</option><option value="output">出圖室</option><option value="all">全部分類</option></select></label></div><label class="field">說明／用途<input id="newDesc"></label><label class="check"><input id="newAvailable" type="checkbox" checked>目前可用</label><button id="addItem" class="primary">新增項目</button><h3>既有項目（可編輯）</h3><div class="table-wrap"><table><thead><tr><th>名稱／說明</th><th>分類</th><th>狀態</th><th>操作</th></tr></thead><tbody>'+
       config.items.map(i=>'<tr><td><input data-name="'+esc(i.id)+'" value="'+esc(i.name)+'"><input data-desc="'+esc(i.id)+'" value="'+esc(i.description||"")+'" placeholder="說明"></td><td><select data-cat="'+esc(i.id)+'">'+["booking","borrowing","micro","output","all"].map(k=>'<option value="'+k+'" '+(i.category===k?"selected":"")+'>'+k+'</option>').join("")+'</select></td><td><input data-avail="'+esc(i.id)+'" type="checkbox" '+(i.available===false?"":"checked")+'></td><td><button class="secondary" data-saveitem="'+esc(i.id)+'">儲存</button><button class="danger" data-delitem="'+esc(i.id)+'">刪除</button></td></tr>').join("")+
       '</tbody></table></div><p class="muted">原始匯出碼未包含動態空間清單，請依原站實際資料建立。</p>';
     $("#addItem").onclick=async()=>{const name=$("#newName").value.trim();if(!name)return toast("請輸入名稱");try{await sdk.addDoc(sdk.collection(db,"items"),{name,category:$("#newCategory").value,description:$("#newDesc").value,available:$("#newAvailable").checked,updatedAt:sdk.serverTimestamp()});await loadConfig();await adminSection("items");render();toast("項目已新增")}catch(e){toast("新增失敗："+friendlyError(e))}};
