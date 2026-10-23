@@ -3,7 +3,7 @@ service firebase.storage {
   match /b/{bucket}/o {
     function signedIn() { return request.auth != null; }
     function isAdmin() {
-      return signedIn() && request.auth.token.admin == true;
+      return signedIn() && request.auth.token.admin == true && request.auth.token.email_verified == true;
     }
     // Student photo uploads use short-lived server-generated signed URLs.
     // Regular Firebase Storage SDK requests are admin-only.
