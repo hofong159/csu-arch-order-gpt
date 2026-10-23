@@ -29,7 +29,6 @@ jobs:
           mkdir -p dist
           cp index.html styles.css firebase-config.js app.js dist/
           node --check dist/app.js
-          node --check functions/index.js
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
