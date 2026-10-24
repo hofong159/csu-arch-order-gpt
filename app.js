@@ -90,7 +90,8 @@ function requestForm(type,title){
     (workshop?'<h3>使用規範與注意事項</h3><div class="rule">'+esc(config.rules[type]||defaultRules[type])+'</div><label class="check"><input id="agreeRules" type="checkbox"><span>我已閱讀並同意遵守上述規範。</span></label>':"")+
     '<label class="check"><input id="agree" type="checkbox"><span>我會對本人／全組使用負責，離場前清潔復原並完成簽退；簽退時需上傳現況照片。</span></label>'+
     '<div class="notice">'+esc(config.settings.notice||"原站規則：起始時間每 30 分鐘一格；借用時數以 3 小時為倍數，建議不超過 6 小時。夜間 19:00 至翌日 08:00 須在 19:00 前登記；寒暑假開放情況依管理員公告。21:30 現場無人將鎖門。")+'</div>'+
-    '<p id="requestMessage" class="feedback" role="status"></p><div id="receipt" class="notice hidden"></div><button class="primary full" type="submit" '+(available.length?"":"disabled")+'>送出申請</button></form>';
+    '<p id="requestMessage" class="feedback" role="status"></p><div id="receipt" class="notice hidden"></div><button class="primary full" type="submit" '+(available.length?"":"disabled")+'>送出申請</button></form>'+
+    (type==="booking"?'<section class="item public-course-board"><h2>所選日期的正課課表</h2><p class="muted">依所選日期顯示已匯入的正課；個人預約不公開姓名，預約容量會在送出申請前再檢查。</p><label class="field">查看日期<input id="publicCourseDate" type="date" value="'+today()+'"></label><div id="publicCourseRows" aria-live="polite"><p class="muted">正在載入課表…</p></div></section>':"");
 }
 function render(){
   $$(".tab").forEach(b=>b.classList.toggle("active",b.dataset.view===currentView));
@@ -107,6 +108,27 @@ function render(){
     $("#lookupBtn").onclick=loadMine;
   }
   const f=$("#requestForm");if(f)f.onsubmit=submitRequest;
+  const publicCourseDate=$("#publicCourseDate");
+  if(publicCourseDate){
+    publicCourseDate.onchange=loadPublicCourseBoard;
+    if(db)loadPublicCourseBoard();else $("#publicCourseRows").innerHTML='<p class="muted">連線後會顯示課表。</p>';
+  }
+}
+async function loadPublicCourseBoard(){
+  const panel=$("#publicCourseRows"),date=$("#publicCourseDate")?.value;
+  if(!panel||!date||!db)return;
+  panel.innerHTML='<p class="muted">正在讀取 '+esc(date)+' 的課表…</p>';
+  try{
+    const snap=await sdk.getDocs(sdk.query(sdk.collection(db,"schedule"),sdk.where("date","==",date)));
+    const rows=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>String(a.start||"").localeCompare(String(b.start||"")));
+    if(!rows.length){panel.innerHTML='<p class="muted">這一天尚無課表資料。管理員可在「管理員後台 → 課表」匯入舊課表。</p>';return}
+    const itemName=id=>config.items.find(i=>i.id===id)?.name||"";
+    panel.innerHTML='<div class="table-wrap"><table><thead><tr><th>區域／空間</th><th>時間</th><th>正課／內容</th></tr></thead><tbody>'+
+      rows.map(r=>'<tr><td>'+esc(r.itemId?itemName(r.itemId)||r.areaCode||"指定空間":r.areaCode?(String(r.areaCode).endsWith("區")?r.areaCode:r.areaCode+"區"):"全域占用")+'</td><td>'+esc(r.start||"")+"–"+esc(r.end||"")+'</td><td>'+esc(r.title||r.label||"課表占用")+'</td></tr>').join("")+
+      '</tbody></table></div>';
+  }catch(e){
+    panel.innerHTML='<p class="feedback error">課表讀取失敗：'+esc(friendlyError(e))+'。請確認 Firestore Rules 已發布，且 schedule 資料讀取規則允許公開讀取。</p>';
+  }
 }
 function intersect(a,b,c,d){return a<d&&b>c}
 function stableHash(value){
@@ -919,7 +941,9 @@ async function adminSection(which){
     });
   }
   if(which==="bookings"){
-    const snap=await sdk.getDocs(sdk.query(sdk.collection(db,"bookings"),sdk.orderBy("createdAt","desc"))),rows=snap.docs.map(d=>({id:d.id,...d.data()}));
+    const snap=await sdk.getDocs(sdk.collection(db,"bookings")),rows=snap.docs.map(d=>({id:d.id,...d.data()}));
+    const createdMillis=value=>value?.toDate?value.toDate().getTime():(value?new Date(value).getTime():0);
+    rows.sort((a,b)=>createdMillis(b.createdAt)-createdMillis(a.createdAt));
     c.innerHTML='<h3>申請／照片管理</h3><div class="table-wrap"><table><thead><tr><th>申請人／手機</th><th>項目／時間</th><th>狀態</th><th>簽到／照片</th><th>審核</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+esc(r.name)+'<br>'+esc(r.className)+'<br>'+esc(r.phone)+'</td><td>'+esc(r.item)+'<br>'+esc(r.date)+' '+esc(r.start)+'–'+esc(r.endDate&&r.endDate!==r.date?r.endDate+' ':'')+esc(r.endTime)+'<br><small>'+esc(r.purpose||"")+'</small></td><td>'+esc(r.displayStatus||statusLabel(r.status))+(r.legacyImportConflict?'<br><b style="color:#b45309">⚠ 匯入時段衝突，未佔用時段</b>':"")+'</td><td>'+(r.checkedInAt?"已簽到":"未簽到")+'／'+(r.checkedOutAt?"已簽退":"未簽退")+'<br>'+((r.photoIds||[]).map((p,i)=>'<button class="secondary" data-openphoto="'+esc(r.id)+'" data-photoid="'+esc(p)+'">照片'+(i+1)+'</button>').concat((Array.isArray(r.photos)?r.photos:[]).map((p,i)=>'<button class="secondary" data-openlegacy="'+esc(r.id)+'" data-legacyidx="'+i+'">舊照片'+(i+1)+'</button>')).join(" ")||"無照片")+'</td><td><select data-status="'+esc(r.id)+'">'+["pending","approved","rejected","cancelled","finished"].map(k=>'<option value="'+k+'" '+(r.status===k?"selected":"")+'>'+statusLabel(k)+'</option>').join("")+'</select><button class="secondary" data-savebooking="'+esc(r.id)+'">儲存</button></td></tr>').join("")+'</tbody></table></div>';
     $$("[data-savebooking]").forEach(b=>b.onclick=async()=>{const id=b.dataset.savebooking,status=$("[data-status='"+id+"']",c).value;try{await sdk.updateDoc(sdk.doc(db,"bookings",id),{status,reviewedAt:sdk.serverTimestamp()});if(["rejected","cancelled","finished"].includes(status)){const locks=await sdk.getDocs(sdk.query(sdk.collection(db,"reservationLocks"),sdk.where("bookingId","==",id)));for(const l of locks.docs)await sdk.deleteDoc(sdk.doc(db,"reservationLocks",l.id))}toast("申請狀態已更新");await adminSection("bookings")}catch(e){toast("更新失敗："+friendlyError(e))}});
     $$("[data-openphoto]").forEach(b=>b.onclick=async()=>{const w=window.open("","_blank");if(!w)return toast("瀏覽器阻擋新視窗，請允許彈出視窗後重試");try{const d=await sdk.getDoc(sdk.doc(db,"bookings",b.dataset.openphoto,"photos",b.dataset.photoid));if(!d.exists())throw new Error("照片已清除");w.document.write('<!doctype html><meta charset="utf-8"><title>簽退照片</title><img style="max-width:100%;height:auto" src="'+d.data().dataUrl+'">')}catch(e){w.close();toast("無法開啟照片："+friendlyError(e))}});
