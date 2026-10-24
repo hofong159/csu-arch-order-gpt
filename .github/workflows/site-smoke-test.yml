@@ -43,13 +43,13 @@ jobs:
             // GitHub Pages deploys asynchronously after a push. Wait for this fix's cache
             // version so the test does not accidentally examine the previous deployed build.
             let appAsset = "";
-            for (let attempt = 0; attempt < 12; attempt++) {
+            for (let attempt = 0; attempt < 30; attempt++) {
               await page.waitForTimeout(2500);
               appAsset = await page.locator("script[src*='app.js']").getAttribute("src").catch(() => "");
-              if (appAsset.includes("20261024-admin-load-timeout2")) break;
+              if (appAsset.includes("20261025-compat-sdk-bridge2")) break;
               response = await page.goto(url + "&retry=" + attempt, { waitUntil: "domcontentloaded", timeout: 60000 });
             }
-            if (!appAsset.includes("20261024-admin-load-timeout2")) throw new Error("LATEST_GITHUB_PAGES_ASSET_NOT_DEPLOYED: " + appAsset);
+            if (!appAsset.includes("20261025-compat-sdk-bridge2")) throw new Error("LATEST_GITHUB_PAGES_ASSET_NOT_DEPLOYED: " + appAsset);
             console.log("URL:", page.url());
             console.log("HTTP:", response?.status());
             console.log("TITLE:", await page.title());
