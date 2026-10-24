@@ -596,10 +596,93 @@ async function adminSection(which){
     $$("[data-delitem]").forEach(b=>b.onclick=async()=>{if(!confirm("確定刪除此項目？"))return;try{await sdk.deleteDoc(sdk.doc(db,"items",b.dataset.delitem));await loadConfig();await adminSection("items");render();toast("項目已刪除")}catch(e){toast("刪除失敗："+friendlyError(e))}});
   }
   if(which==="schedule"){
-    const snap=await sdk.getDocs(sdk.query(sdk.collection(db,"schedule"),sdk.orderBy("date","asc"))),rows=snap.docs.map(d=>({id:d.id,...d.data()}));
-    c.innerHTML='<h3>課表管理</h3><p class="muted">每行一筆：日期,開始時間,結束時間,課程名稱,空間項目 ID（可省略，省略表示全域占用）。</p><label class="field">課表 CSV<textarea id="csv" rows="6" placeholder="2026-10-22,09:00,12:00,建築設計課"></textarea></label><label class="check"><input type="checkbox" id="replaceSchedule">匯入前清除所有現有課表（慎用）</label><button id="importSchedule" class="primary">匯入課表</button><h3>已匯入 '+rows.length+' 筆課表</h3><div class="table-wrap"><table><thead><tr><th>日期</th><th>區域</th><th>時段</th><th>課程</th><th>操作</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+esc(r.date)+'</td><td>'+esc(r.areaCode?r.areaCode+"區":"全域占用")+'</td><td>'+esc(r.start)+'–'+esc(r.end)+'</td><td>'+esc(r.title||"課表占用")+'</td><td><button class="danger" data-sdel="'+esc(r.id)+'">刪除</button></td></tr>').join("")+'</tbody></table></div>';
-    $("#importSchedule").onclick=async()=>{const parsed=[];for(const line of $("#csv").value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean)){const p=line.split(",").map(x=>x.trim());if(p.length<3||!/^\d{4}-\d{2}-\d{2}$/.test(p[0])||!/^([01]\d|2[0-3]):[0-5]\d$/.test(p[1])||!/^([01]\d|2[0-3]):[0-5]\d$/.test(p[2])||p[1]>=p[2])return toast("格式錯誤："+line);parsed.push({date:p[0],start:p[1],end:p[2],title:p[3]||"課表占用",itemId:p[4]||"",createdAt:sdk.serverTimestamp()})}try{if($("#replaceSchedule").checked){const old=await sdk.getDocs(sdk.collection(db,"schedule"));for(const d of old.docs)await sdk.deleteDoc(sdk.doc(db,"schedule",d.id))}for(const row of parsed)await sdk.addDoc(sdk.collection(db,"schedule"),row);await adminSection("schedule");toast("已匯入 "+parsed.length+" 筆")}catch(e){toast("匯入失敗："+friendlyError(e))}};
-    $$("[data-sdel]").forEach(b=>b.onclick=async()=>{if(!confirm("確定刪除此課表？"))return;try{await sdk.deleteDoc(sdk.doc(db,"schedule",b.dataset.sdel));await adminSection("schedule")}catch(e){toast("刪除失敗："+friendlyError(e))}});
+    const snap=await sdk.getDocs(sdk.collection(db,"schedule"));
+    const rows=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>String(a.date||"").localeCompare(String(b.date||""))||String(a.start||"").localeCompare(String(b.start||"")));
+    c.innerHTML='<h3>課表管理／匯入舊課表</h3>'+
+      '<p class="muted">支援 CSV 和 JSON。CSV 可用欄位標題（日期、區域、開始時間、結束時間、課程名稱），也支援舊格式；區域可填 A、A區、空間代碼或項目 ID。無日期的檔案會使用下方預設日期。</p>'+
+      '<label class="field">匯入日期（檔案沒有日期時使用）<input id="defaultScheduleDate" type="date" value="'+today()+'"></label>'+
+      '<label class="field">選擇舊課表 CSV／JSON 檔<input id="scheduleFile" type="file" accept=".csv,.txt,.json,text/csv,application/json"></label>'+
+      '<label class="field">課表內容（可直接貼上）<textarea id="csv" rows="8" placeholder="日期,區域,開始時間,結束時間,課程名稱\n2026-10-24,A,13:00,13:45,基本設計(一)／教師"></textarea></label>'+
+      '<label class="check"><input type="checkbox" id="replaceSchedule">匯入前清除現有課表（請謹慎使用）</label>'+
+      '<button id="importSchedule" class="primary">解析並匯入課表</button>'+
+      '<p id="scheduleMessage" class="feedback" role="status" aria-live="polite"></p>'+
+      '<h3>目前課表（'+rows.length+' 筆）</h3><div class="table-wrap"><table><thead><tr><th>日期</th><th>區域</th><th>時段</th><th>課程</th><th>操作</th></tr></thead><tbody>'+
+      rows.map(r=>'<tr><td>'+esc(r.date||"未設定")+'</td><td>'+esc(r.areaCode?(String(r.areaCode).endsWith("區")?r.areaCode:r.areaCode+"區"):"全域占用")+'</td><td>'+esc(r.start||"")+'–'+esc(r.end||"")+'</td><td>'+esc(r.title||r.label||"課表占用")+'</td><td><button class="danger" data-sdel="'+esc(r.id)+'">刪除</button></td></tr>').join("")+
+      '</tbody></table></div>';
+
+    $("#scheduleFile").onchange=async()=>{
+      const file=$("#scheduleFile").files?.[0];if(!file)return;
+      try{$("#csv").value=await file.text();feedback("scheduleMessage","已讀取 "+file.name+"（"+file.size+" bytes），請確認日期和區域後按「解析並匯入課表」。")}
+      catch(e){feedback("scheduleMessage","讀取檔案失敗："+friendlyError(e),true)}
+    };
+    $("#importSchedule").onclick=async()=>{
+      const button=$("#importSchedule"),original=button.textContent;
+      button.disabled=true;button.textContent="正在解析／匯入…";
+      try{
+        let raw=$("#csv").value.trim();
+        if(!raw&&$("#scheduleFile").files?.[0])raw=await $("#scheduleFile").files[0].text();
+        // If a legacy getBoard() JSON includes spaces, upsert those spaces first so course area IDs resolve.
+        if(raw.startsWith("{")){
+          let parsedJson;
+          try{parsedJson=JSON.parse(raw)}catch(e){throw new Error("JSON 格式錯誤："+e.message)}
+          const spaces=parsedJson.spaces||parsedJson.board?.spaces||[];
+          if(Array.isArray(spaces)&&spaces.length){
+            const existing=config.items;
+            const batch=sdk.writeBatch(db);let writes=0;
+            for(const space of spaces){
+              const name=String(space.name||space.label||space.title||"").trim();
+              const rawCode=String(space.areaCode||space.code||space.id||name).trim();
+              if(!name)continue;
+              const found=existing.find(i=>i.name===name||String(i.areaCode||"").toUpperCase()===areaKey(rawCode));
+              const itemId=found?.id||String(space.id||("space_"+rawCode)).replace(/[^A-Za-z0-9_-]/g,"_").slice(0,120);
+              batch.set(sdk.doc(db,"items",itemId),{
+                name,category:space.category||"booking",areaCode:space.areaCode||rawCode,
+                description:space.description||"由舊系統匯入的空間",available:found?.available===false?false:space.available!==false,
+                source:"legacy-import",updatedAt:sdk.serverTimestamp()
+              },{merge:true});writes++;
+            }
+            if(writes)await batch.commit();
+            await loadConfig();
+          }
+        }
+        const parsed=scheduleRowsFromText(raw,$("#defaultScheduleDate").value||today());
+        if(!parsed.length)throw new Error("沒有找到可匯入的課表資料。");
+        const current=await sdk.getDocs(sdk.collection(db,"schedule"));
+        const existing=current.docs.map(d=>({id:d.id,...d.data()}));
+        if($("#replaceSchedule").checked){
+          if(!confirm("確定刪除目前 "+existing.length+" 筆課表，再匯入 "+parsed.length+" 筆？此動作不能自動復原。"))throw new Error("已取消匯入，原課表未變更。");
+          for(let offset=0;offset<current.docs.length;offset+=400){
+            const batch=sdk.writeBatch(db);
+            current.docs.slice(offset,offset+400).forEach(d=>batch.delete(d.ref));
+            await batch.commit();
+          }
+        }
+        const planned=parsed.map(row=>{
+          const same=existing.find(r=>r.date===row.date&&r.start===row.start&&r.end===row.end&&(r.itemId||"")===(row.itemId||"")&&(r.title||r.label||"")===row.title);
+          const key=[row.date,row.areaCode||"all",row.start,row.end,stableHash(row.title)].join("_").replace(/[^A-Za-z0-9_-]/g,"_");
+          return {id:same?.id||("import_"+key),...row,source:"CSV／JSON 匯入",updatedAt:sdk.serverTimestamp()};
+        });
+        const unique=new Map(planned.map(row=>[row.id,row]));
+        const toWrite=[...unique.values()];
+        for(let offset=0;offset<toWrite.length;offset+=400){
+          const batch=sdk.writeBatch(db);
+          toWrite.slice(offset,offset+400).forEach(row=>{
+            const {id,...data}=row;batch.set(sdk.doc(db,"schedule",id),data,{merge:true});
+          });
+          await batch.commit();
+        }
+        await adminSection("schedule");
+        feedback("scheduleMessage","匯入成功："+toWrite.length+" 筆課表。區域已對應到 Firebase 項目 ID，預約時會依區域檢查課表衝突。");
+        toast("課表匯入完成");
+      }catch(e){
+        feedback("scheduleMessage","匯入失敗："+friendlyError(e),true);
+      }finally{button.disabled=false;button.textContent=original}
+    };
+    $$("[data-sdel]").forEach(b=>b.onclick=async()=>{
+      if(!confirm("確定刪除此課表？"))return;
+      try{await sdk.deleteDoc(sdk.doc(db,"schedule",b.dataset.sdel));await adminSection("schedule");toast("課表已刪除")}
+      catch(e){feedback("scheduleMessage","刪除失敗："+friendlyError(e),true)}
+    });
   }
   if(which==="bookings"){
     const snap=await sdk.getDocs(sdk.query(sdk.collection(db,"bookings"),sdk.orderBy("createdAt","desc"))),rows=snap.docs.map(d=>({id:d.id,...d.data()}));
