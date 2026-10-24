@@ -779,7 +779,7 @@ function parseLegacyDateTime(raw,fallbackDate){
   if(/^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}[T\s]/.test(value)){
     const direct=new Date(value);if(!Number.isNaN(direct.getTime()))return direct;
   }
-  const dateMatch=value.match(/(\d{4}\s*[-/.年]\s*\d{1,2}\s*[-/.月]\s*\d{1,2}\s*日?)/);
+  const dateMatch=value.match(/(\d{2,4}\s*[-/.年]\s*\d{1,2}\s*[-/.月]\s*\d{1,2}\s*日?)/);
   if(dateMatch){
     const date=importDate(dateMatch[1],fallbackDate);
     const rest=value.slice(dateMatch.index+dateMatch[1].length).replace(/^[T\s,]+/,"");
@@ -848,7 +848,7 @@ async function importLegacySnapshot(){
       const start=importTime(row.start||row.startTime||row.begin);
       const end=importTime(row.end||row.endTime||row.finish);
       const title=String(row.title||row.label||row.courseName||row.course||row.subject||"課表占用").trim();
-      const areaRaw=row.areaCode??row.area??row.space??row.room??row.itemId??"";
+      const areaRaw=row.areaCode??row.area_code??row.area??row.areaName??row.area_name??row.space??row.spaceName??row.space_id??row.room??row.roomId??row.itemId??"";
       const itemId=mapLegacyArea(areaRaw);
       if(!date||!start||!end||start>=end)throw new Error("課表「"+title+"」日期或時間格式不正確；日期："+String(row.date||defaultDate)+"，時間："+String(row.start||row.startTime)+"–"+String(row.end||row.endTime));
       if(areaRaw&&!itemId)throw new Error("課表「"+title+"」使用未知區域："+String(areaRaw)+"。請確認 spaces 裡有相同區域 ID／名稱。");
@@ -874,9 +874,9 @@ async function importLegacySnapshot(){
       const row=bookings[index]||{};
       const areaRaw=row.areaCode??row.area??row.space??row.room??row.itemId??"";
       const itemId=mapLegacyArea(areaRaw);
-      const rawStart=row.start??row.startTime??row.timeStart;
-      const rawEnd=row.end??row.endTime??row.timeEnd;
-      const hintedDate=importDate(row.date||row.bookingDate||row.dateString,defaultDate)||defaultDate;
+      const rawStart=row.start??row.startTime??row.start_time??row.timeStart??row.startAt??row.startDateTime??row.start_datetime??row.beginTime??row.from;
+      const rawEnd=row.end??row.endTime??row.end_time??row.timeEnd??row.endAt??row.endDateTime??row.end_datetime??row.finishTime??row.to;
+      const hintedDate=importDate(row.date||row.bookingDate||row.booking_date||row.reservationDate||row.dateString||row.startDate||row.start_date,defaultDate)||defaultDate;
       const startDateTime=parseLegacyDateTime(rawStart,hintedDate);
       let endDateTime=parseLegacyDateTime(rawEnd,importDate(row.endDate,localDate(startDateTime||new Date()))||localDate(startDateTime||new Date()));
       if(!startDateTime||!endDateTime)throw new Error("第 "+(index+1)+" 筆舊借用資料日期／時間無法辨識。請確認 start/end 欄位。");
@@ -915,11 +915,11 @@ async function importLegacySnapshot(){
       const durationHours=(endDateTime.getTime()-startDateTime.getTime())/3600000;
       const endAreaName=config.items.find(i=>i.id===itemId)?.name||String(areaRaw||"舊系統區域");
       const photoSources=[];
-      for(const candidate of [row.photos,row.photoUrls,row.images,row.checkoutPhotos,row.returnPhotos,row.attachments]){
+      for(const candidate of [row.photos,row.photoUrls,row.photoURLs,row.photo_urls,row.images,row.checkoutPhotos,row.checkOutPhotos,row.returnPhotos,row.returnPhotoUrls,row.attachments]){
         if(Array.isArray(candidate))photoSources.push(...candidate);
         else if(typeof candidate==="string"&&candidate)photoSources.push(candidate);
       }
-      for(const candidate of [row.photo,row.photoUrl,row.checkoutPhoto,row.returnPhoto]){
+      for(const candidate of [row.photo,row.photoUrl,row.photoURL,row.photo_url,row.checkoutPhoto,row.returnPhoto]){
         if(candidate)photoSources.push(candidate);
       }
       const photos=[],inlinePhotoRecords=[];
