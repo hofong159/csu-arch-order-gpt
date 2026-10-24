@@ -268,32 +268,51 @@ function recordCard(d,code){
     ((d.photoIds||[]).length?'<p class="muted">已回傳 '+d.photoIds.length+' 張簽退照片。</p>':"")+'</article>';
 }
 async function compressImage(file){
-  const bitmap=await createImageBitmap(file);
-  const max=1000,scale=Math.min(1,max/Math.max(bitmap.width,bitmap.height));
-  const canvas=document.createElement("canvas");canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));
-  const context=canvas.getContext("2d");context.drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close();
-  const blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error("圖片壓縮失敗。")),"image/jpeg",0.68));
-  return await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(new Error("讀取圖片失敗。"));reader.readAsDataURL(blob)});
+  if(!file||!String(file.type||"").startsWith("image/"))throw new Error("請選擇照片檔案。");
+  let bitmap;
+  try{bitmap=await createImageBitmap(file)}
+  catch(e){throw new Error("瀏覽器無法讀取這張照片。請先轉成 JPG／PNG，再重新上傳；部分 HEIC 照片需先轉檔。")}
+  try{
+    for(const maxSide of [1280,1000,800,640]){
+      const scale=Math.min(1,maxSide/Math.max(bitmap.width,bitmap.height));
+      const canvas=document.createElement("canvas");
+      canvas.width=Math.max(1,Math.round(bitmap.width*scale));
+      canvas.height=Math.max(1,Math.round(bitmap.height*scale));
+      canvas.getContext("2d").drawImage(bitmap,0,0,canvas.width,canvas.height);
+      for(const quality of [0.72,0.62,0.52,0.42]){
+        const blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error("照片壓縮失敗。")),"image/jpeg",quality));
+        if(blob.size>620000)continue;
+        const dataUrl=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(new Error("讀取照片失敗。"));reader.readAsDataURL(blob)});
+        if(dataUrl.length<650000)return dataUrl;
+      }
+    }
+    throw new Error("照片壓縮後仍超過免費版限制。請選擇較小張的照片再試。");
+  }finally{bitmap.close?.()}
 }
 async function checkout(code){
-  const picker=document.createElement("input");picker.type="file";picker.accept="image/*";picker.multiple=true;
+  const picker=document.createElement("input");picker.type="file";picker.accept="image/jpeg,image/png,image/webp";picker.multiple=true;
   picker.onchange=async()=>{
     const files=[...(picker.files||[])];if(files.length<1||files.length>5){toast("請選擇 1 至 5 張照片");return}
-    const status=$("#lookupMessage");
     try{
-      const bookingSnap=await sdk.getDoc(sdk.doc(db,"bookings",code));
+      const bookingRef=sdk.doc(db,"bookings",code),bookingSnap=await sdk.getDoc(bookingRef);
       if(!bookingSnap.exists())throw new Error("查無此申請。");
-      const booking=bookingSnap.data();if(booking.checkedOutAt)throw new Error("此申請已簽退。");
-      const photoIds=[];
-      for(const file of files){
-        const dataUrl=await compressImage(file);
-        if(dataUrl.length>700000)throw new Error("壓縮後單張照片仍太大，請選擇較小圖片。");
-        const photoRef=sdk.doc(sdk.collection(db,"bookings",code,"photos"));
-        await sdk.setDoc(photoRef,{dataUrl,name:file.name.slice(0,100),contentType:"image/jpeg",createdAt:sdk.serverTimestamp()});
-        photoIds.push(photoRef.id);
-      }
-      await sdk.updateDoc(sdk.doc(db,"bookings",code),{checkedOutAt:sdk.serverTimestamp(),photoIds});
-      toast("簽退完成，照片已儲存");await loadMine();
+      const booking=bookingSnap.data();
+      if(booking.status!=="approved")throw new Error("此申請尚未核准，不能簽退。");
+      if(!booking.checkedInAt)throw new Error("請先完成到場簽到。");
+      if(booking.checkedOutAt)throw new Error("此申請已完成簽退。");
+      if((booking.photoIds||[]).length+files.length>5)throw new Error("每筆申請最多只能回傳 5 張照片。");
+      const compressed=[];
+      for(const file of files)compressed.push({name:file.name.slice(0,100),dataUrl:await compressImage(file)});
+      const existing=Array.isArray(booking.photoIds)?booking.photoIds:[];
+      const photoRefs=compressed.map(()=>sdk.doc(sdk.collection(db,"bookings",code,"photos")));
+      const batch=sdk.writeBatch(db);
+      compressed.forEach((photo,i)=>batch.set(photoRefs[i],{
+        dataUrl:photo.dataUrl,name:photo.name,contentType:"image/jpeg",createdAt:sdk.serverTimestamp()
+      }));
+      batch.update(bookingRef,{checkedOutAt:sdk.serverTimestamp(),photoIds:[...existing,...photoRefs.map(r=>r.id)]});
+      await batch.commit();
+      toast("簽退完成，"+compressed.length+" 張照片已儲存");
+      await loadMine();
     }catch(e){feedback("lookupMessage",friendlyError(e),true)}
   };
   picker.click();
