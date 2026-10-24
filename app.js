@@ -414,6 +414,7 @@ async function showAdmin(){
       if(msg){msg.classList.remove("hidden","error");msg.textContent="正在載入「"+(quick?"初始資料匯入":tab.textContent.trim())+"」…"}
       try{
         await adminSection(which);
+        if(quick)await seedBaselineData();
         if(msg){msg.classList.add("hidden");msg.textContent=""}
       }catch(err){
         const content=$("#adminContent");
