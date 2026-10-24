@@ -68,7 +68,7 @@ jobs:
               scheduleParser: typeof scheduleRowsFromText,
               photoCompressor: typeof compressImage,
               photoCleaner: typeof cleanupExpiredPhotos,
-              csvRows: parseCsvText('日期,區域,開始時間,結束時間,課程名稱\\n2026-10-24,A,13:00,13:45,基本設計').length,
+              csvRows: parseCsvText('日期,區域,開始時間,結束時間,課程名稱\n2026-10-24,A,13:00,13:45,基本設計').length,
               pmTime: importTime('下午1:30'),
               parsedDate: importDate('2026/10/24','')
             }));
