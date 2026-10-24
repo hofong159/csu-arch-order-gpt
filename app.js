@@ -284,16 +284,30 @@ function findAreaItem(value){
   const raw=String(value).trim(),key=areaKey(raw);
   return config.items.find(i=>String(i.id)===raw||String(i.areaCode||"").toUpperCase()===key||String(i.name||"").replace(/\s/g,"")===raw.replace(/\s/g,"")||areaKey(i.name)===key)||null;
 }
-function unwrapLegacyPayload(parsed){
+function legacyCandidates(parsed){
   const candidates=[],queue=[{value:parsed,depth:0}],seen=new Set();
   while(queue.length){
     const {value,depth}=queue.shift();
-    if(!value||typeof value!=="object"||seen.has(value)||depth>4)continue;
+    if(!value||typeof value!=="object"||seen.has(value)||depth>5)continue;
     seen.add(value);candidates.push(value);
-    for(const key of ["data","board","payload","result","response","value","snapshot"]){
+    for(const key of ["data","board","payload","result","response","value","snapshot","responseData"]){
       if(value[key]&&typeof value[key]==="object")queue.push({value:value[key],depth:depth+1});
     }
   }
+  return candidates;
+}
+function legacyArray(parsed,keys){
+  const candidates=legacyCandidates(parsed);
+  for(const candidate of candidates){for(const key of keys){if(Array.isArray(candidate[key])&&candidate[key].length)return candidate[key]}}
+  for(const candidate of candidates){for(const key of keys){if(Array.isArray(candidate[key]))return candidate[key]}}
+  return [];
+}
+function legacyValue(parsed,keys){
+  for(const candidate of legacyCandidates(parsed)){for(const key of keys){const value=candidate[key];if(value!==undefined&&value!==null&&String(value).trim()!=="")return value}}
+  return undefined;
+}
+function unwrapLegacyPayload(parsed){
+  const candidates=legacyCandidates(parsed);
   const keys=["spaces","areas","rooms","locations","courses","schedule","classes","lessons","bookings","reservations","appointments","records"];
   const hasContent=o=>o&&keys.some(k=>Array.isArray(o[k])&&o[k].length>0);
   return candidates.find(hasContent)||candidates.find(o=>keys.some(k=>Array.isArray(o[k])))||parsed;
