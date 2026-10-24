@@ -140,7 +140,10 @@ function importDate(raw,fallback){
 }
 function importTime(raw){
   if(raw==null)return "";
-  let v=String(raw).trim(),marker=(v.match(/上午|下午|晚上|中午|AM|PM/i)||[])[0];
+  if(typeof raw==="number"&&raw>=0&&raw<1){const mins=Math.round(raw*1440)%1440;return String(Math.floor(mins/60)).padStart(2,"0")+":"+String(mins%60).padStart(2,"0")}
+  let v=String(raw).trim();
+  if(/^0?\.\d+$/.test(v)){const mins=Math.round(Number(v)*1440)%1440;return String(Math.floor(mins/60)).padStart(2,"0")+":"+String(mins%60).padStart(2,"0")}
+  const marker=(v.match(/上午|下午|晚上|中午|AM|PM/i)||[])[0];
   v=v.replace(/上午|下午|晚上|中午|AM|PM/ig,"").trim();
   const m=v.match(/^(\d{1,2})[:.](\d{2})(?::\d{2})?$/);if(!m)return "";
   let h=Number(m[1]),min=Number(m[2]);if(h>23||min>59)return "";
@@ -578,6 +581,9 @@ function parseLegacyDateTime(raw,fallbackDate){
   if(!value)return null;
   if(typeof raw==="number"&&raw>100000000000){
     const d=new Date(raw);return Number.isNaN(d.getTime())?null:d;
+  }
+  if(/^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}[T\s]/.test(value)){
+    const direct=new Date(value);if(!Number.isNaN(direct.getTime()))return direct;
   }
   const dateMatch=value.match(/(\d{4}\s*[-/.年]\s*\d{1,2}\s*[-/.月]\s*\d{1,2}\s*日?)/);
   if(dateMatch){
