@@ -765,13 +765,24 @@ async function adminSection(which){
     loadAdminList();
   }
   if(which==="seed"){
-    c.innerHTML='<h3>預載原站空間與課表</h3>'+
-      '<p>此操作會將你提供的 2026/10/24 課表、九樓設計教室 A–H 區、總評一／二區，以及原站畫面中兩筆有效借用紀錄寫入目前 Firebase 的 Firestore。</p>'+
-      '<p>不會刪除其他設定。已存在的同名區域和相同課表會沿用；重複按下不會重複新增原站借用。</p>'+
-      '<div class="notice"><b>匯入內容：</b>10 個區域；17 筆正課；A 區小組借用（2026/10/23 23:30–10/24 11:30）；H 區單人借用（2026/10/22 17:00–10/27 17:00）。E、G、總評一／二區依你提供的內容不新增正課。</div>'+
-      '<p class="muted">你提供的原站輸出碼沒有包含 Apps Script 後端回傳的完整空間資料清單，因此只預載你明確提供的區域名稱和紀錄，不自行猜測機器清單。</p>'+
-      '<button id="seedBaselineBtn" class="primary">一鍵匯入空間、課表與借用紀錄</button>'+
+    c.innerHTML='<h3>匯入原站舊資料</h3>'+
+      '<p>若有從舊網站取得的 getBoard() 資料 JSON，請使用下方匯入器。它會匯入 spaces、courses、bookings（含原有 photos 陣列），並把舊區域 ID 對應到目前 Firebase 的空間 ID。</p>'+
+      '<label class="field">舊資料日期（JSON 沒有日期時使用）<input id="legacyImportDate" type="date" value="'+today()+'"></label>'+
+      '<label class="field">選擇舊資料 JSON 檔<input id="legacyJsonFile" type="file" accept=".json,application/json"></label>'+
+      '<label class="field">JSON 內容（可直接貼上）<textarea id="legacyJson" rows="8" placeholder=\'{"spaces":[{"id":"A","name":"A區"}],"courses":[{"area":"A","start":"13:00","end":"13:45","label":"基本設計"}],"bookings":[]}\'></textarea></label>'+
+      '<button id="importLegacyBtn" class="primary">匯入舊網站資料 JSON</button>'+
+      '<p id="legacyImportMessage" class="feedback" role="status" aria-live="polite"></p>'+
+      '<div class="notice"><b>重要：</b>原網站「輸出代碼 HTML」只包含呼叫 getBoard() 的程式，不包含 Google Apps Script 後端即時資料。請匯入舊網站實際回傳的 JSON；如果只上傳 HTML，系統會提示原因。</div>'+
+      '<hr><h3>一鍵預載已確認的原站資料</h3>'+
+      '<p>只匯入你已提供並能確認的資料，不會清空既有紀錄：10 個區域、17 筆 2026/10/24 正課，以及兩筆舊借用紀錄。</p>'+
+      '<button id="seedBaselineBtn" class="secondary">匯入已確認的空間／課表／借用紀錄</button>'+
       '<p id="seedMessage" class="feedback" role="status" aria-live="polite"></p>';
+    $("#legacyJsonFile").onchange=async()=>{
+      const file=$("#legacyJsonFile").files?.[0];if(!file)return;
+      try{$("#legacyJson").value=await file.text();feedback("legacyImportMessage","已讀取 "+file.name+"，請確認後按「匯入舊網站資料 JSON」。")}
+      catch(e){feedback("legacyImportMessage","讀取檔案失敗："+friendlyError(e),true)}
+    };
+    $("#importLegacyBtn").onclick=importLegacySnapshot;
     $("#seedBaselineBtn").onclick=seedBaselineData;
   }
   if(which==="settings"){
