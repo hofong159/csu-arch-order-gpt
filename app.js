@@ -923,7 +923,10 @@ async function adminSection(which){
       '<label class="field">JSON 內容（可直接貼上）<textarea id="legacyJson" rows="8" placeholder=\'{"spaces":[{"id":"A","name":"A區"}],"courses":[{"area":"A","start":"13:00","end":"13:45","label":"基本設計"}],"bookings":[]}\'></textarea></label>'+
       '<button id="importLegacyBtn" class="primary">匯入舊網站資料 JSON</button>'+
       '<p id="legacyImportMessage" class="feedback" role="status" aria-live="polite"></p>'+
-      '<div class="notice"><b>重要：</b>原網站「輸出代碼 HTML」只包含呼叫 getBoard() 的程式，不包含 Google Apps Script 後端即時資料。請匯入舊網站實際回傳的 JSON；如果只上傳 HTML，系統會提示原因。</div>'+
+      '<h3>先從舊網站匯出實際資料</h3><p>開啟舊網站，在 Chrome 按 F12 → Console，將下面指令貼到舊網站的 Google Apps Script 網頁框架執行。它會逐日讀取 getBoard()，最多 31 天，並下載包含 spaces、courses、bookings 的 JSON。</p>'+
+      '<label class="field">舊網站匯出指令（複製後到舊網站 Console 執行）<textarea id="legacyExportCode" rows="9" readonly>'+esc(LEGACY_EXPORT_SNIPPET)+'</textarea></label>'+
+      '<button id="copyLegacyExportBtn" class="secondary">複製舊網站匯出指令</button><p id="legacyExportCopyMessage" class="feedback" role="status"></p>'+
+      '<div class="notice"><b>重要：</b>你先前提供的「輸出代碼 HTML」只有呼叫 getBoard() 的前端程式，不含後端即時資料。先用上方指令從原站下載 JSON，再在這裡選擇下載的 JSON 檔匯入。</div>'+
       '<hr><h3>一鍵預載已確認的原站資料</h3>'+
       '<p>只匯入你已提供並能確認的資料，不會清空既有紀錄：10 個區域、17 筆 2026/10/24 正課，以及兩筆舊借用紀錄。</p>'+
       '<button id="seedBaselineBtn" class="secondary">匯入已確認的空間／課表／借用紀錄</button>'+
@@ -935,6 +938,10 @@ async function adminSection(which){
     };
     $("#importLegacyBtn").onclick=importLegacySnapshot;
     $("#seedBaselineBtn").onclick=seedBaselineData;
+    $("#copyLegacyExportBtn").onclick=async()=>{
+      try{await navigator.clipboard.writeText(LEGACY_EXPORT_SNIPPET);feedback("legacyExportCopyMessage","已複製。切回舊網站，在 F12 → Console 貼上執行即可。")}
+      catch(e){$("#legacyExportCode").focus();$("#legacyExportCode").select();feedback("legacyExportCopyMessage","瀏覽器未允許自動複製，已選取指令，請按 Ctrl+C。")}
+    };
   }
   if(which==="settings"){
     const s=config.settings||{},r=config.rules||{};
