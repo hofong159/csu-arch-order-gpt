@@ -5,7 +5,7 @@ const $$ = (s, root=document) => [...root.querySelectorAll(s)];
 const INITIAL_ADMIN_EMAIL = "hofong159@gmail.com";
 let sdk = {}, app = null, auth = null, db = null, firebaseConfig = null;
 let config = {items:[], rules:{}, settings:{}}, currentView = "booking", adminUser = null;
-const labels = {booking:"空間預約", micro:"借用正修微工坊", output:"借用出圖室", records:"我的申請／簽到簽退"};
+const labels = {booking:"空間預約", borrowing:"設備借還登記（雙向借用）", micro:"借用正修微工坊", output:"借用出圖室", records:"我的申請／簽到簽退"};
 const BASELINE_SPACES = [
   {code:"A", name:"A區"},
   {code:"B", name:"B區"},
@@ -97,6 +97,7 @@ function render(){
   $$(".tab").forEach(b=>b.classList.toggle("active",b.dataset.view===currentView));
   const v=$("#view");if(!v)return;
   if(currentView==="booking")v.innerHTML=requestForm("booking","正修建築圖科九樓設計教室空間預約");
+  else if(currentView==="borrowing")v.innerHTML=requestForm("borrowing","設備借還登記（雙向借用）");
   else if(currentView==="micro"||currentView==="output"){
     const closed=config.settings[currentView+"Open"]===false;
     const cards=getItems(currentView).map(i=>'<article class="item"><h3>'+esc(i.name)+'</h3><span class="status '+(i.available===false?"off":"")+'">'+(i.available===false?"目前不可用":"可用")+'</span><p>'+esc(i.description||"請依現場公告及管理員指示使用。")+'</p></article>').join("");
