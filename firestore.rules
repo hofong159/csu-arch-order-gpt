@@ -104,7 +104,8 @@ service cloud.firestore {
       allow delete: if isAdmin();
 
       match /photos/{photoId} {
-        allow get, list: if isAdmin();
+        // The 128-bit booking code acts as the student's private access key.
+        allow get, list: if isAdmin() || isPublicCode(code);
         allow create: if isAdmin() || (
           isPublicCode(code)
           && request.resource.data.keys().hasOnly(['dataUrl','name','contentType','createdAt','importedLegacyPhoto'])
@@ -116,6 +117,8 @@ service cloud.firestore {
           && get(/databases/$(database)/documents/bookings/$(code)).data.status == 'approved'
           && get(/databases/$(database)/documents/bookings/$(code)).data.checkedInAt != null
           && get(/databases/$(database)/documents/bookings/$(code)).data.checkedOutAt == null
+          && getAfter(/databases/$(database)/documents/bookings/$(code)).data.checkedOutAt == request.time
+          && getAfter(/databases/$(database)/documents/bookings/$(code)).data.photoIds.hasAny([photoId])
         );
         allow update, delete: if isAdmin();
       }
