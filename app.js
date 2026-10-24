@@ -1249,21 +1249,84 @@ function bindShell(){
   render();
   window.dispatchEvent(new Event("csu-app-ready"));
 }
+// Compat adapter：依照可正常運作的個人網站後台，統一改用 Firebase 10.12.2 compat API。
+// 保留目前預約系統使用的介面，避免重寫交易、借用、課表匯入及照片流程。
+function createCompatSdk(firebase){
+  const wrapDoc=s=>({
+    id:s.id,
+    ref:s.ref,
+    exists:()=>s.exists,
+    data:()=>s.data(),
+    get:field=>s.get(field),
+    metadata:s.metadata
+  });
+  const wrapQuery=s=>({
+    docs:s.docs.map(wrapDoc),
+    empty:s.empty,
+    size:s.size,
+    metadata:s.metadata,
+    forEach:fn=>s.forEach(d=>fn(wrapDoc(d)))
+  });
+  const applyConstraints=(base,constraints)=>(constraints||[]).reduce((q,c)=>q.where(c.field,c.op,c.value),base);
+  return {
+    initializeApp:(...args)=>firebase.initializeApp(...args),
+    getAuth:app=>app.auth(),
+    initializeFirestore:(app,settings)=>{
+      const firestore=app.firestore();
+      firestore.settings(settings||{});
+      return firestore;
+    },
+    doc:(dbOrCollection,...path)=>path.length?dbOrCollection.doc(path.join("/")):dbOrCollection.doc(),
+    collection:(db,...path)=>db.collection(path.join("/")),
+    where:(field,op,value)=>({field,op,value}),
+    query:(base,...constraints)=>applyConstraints(base,constraints),
+    getDoc:async ref=>wrapDoc(await ref.get()),
+    getDocs:async ref=>wrapQuery(await ref.get()),
+    setDoc:(ref,data,options)=>ref.set(data,options),
+    addDoc:(ref,data)=>ref.add(data),
+    updateDoc:(ref,data)=>ref.update(data),
+    deleteDoc:ref=>ref.delete(),
+    serverTimestamp:()=>firebase.firestore.FieldValue.serverTimestamp(),
+    writeBatch:db=>db.batch(),
+    runTransaction:(db,callback,options)=>db.runTransaction(tx=>callback({
+      get:async ref=>wrapDoc(await tx.get(ref)),
+      set:(...args)=>tx.set(...args),
+      update:(...args)=>tx.update(...args),
+      delete:(...args)=>tx.delete(...args)
+    }),options),
+    signInWithEmailAndPassword:(auth,email,password)=>auth.signInWithEmailAndPassword(email,password),
+    createUserWithEmailAndPassword:(auth,email,password)=>auth.createUserWithEmailAndPassword(email,password),
+    signOut:auth=>auth.signOut(),
+    deleteUser:user=>user.delete(),
+    deleteApp:app=>app.delete()
+  };
+}
 async function boot(){
   try{
-    const [appSdk,authSdk,firestoreSdk,configModule]=await Promise.all([
-      import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"),
-      import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js"),
-      import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"),
-      import("./firebase-config.js")
-    ]);
-    sdk=Object.assign({},appSdk,authSdk,firestoreSdk);firebaseConfig=configModule.firebaseConfig;
+    if(!window.firebase||!window.firebase.firestore||!window.firebase.auth){
+      throw new Error("Firebase compat SDK 未載入。請確認 Firebase 的 app-compat、firestore-compat 與 auth-compat 腳本可以正常連線。");
+    }
+    const configModule=await import("./firebase-config.js");
+    firebaseConfig=configModule.firebaseConfig;
+    sdk=createCompatSdk(window.firebase);
     app=sdk.initializeApp(firebaseConfig);auth=sdk.getAuth(app);
-    // Force long polling: some proxies/firewalls still stall Firestore's auto-detected WebChannel.
-    // This is intentionally used instead of experimentalAutoDetectLongPolling after repeated 12s read hangs.
+    // 使用和可正常運作的個人網站相同版本的 compat SDK，並在首次讀寫前啟用 long polling。
     db=sdk.initializeFirestore(app,{experimentalForceLongPolling:true});
-    try{await loadConfig();render()}catch(e){console.error(e);const n=document.createElement("div");n.className="notice";n.textContent="表單已載入，但 Firestore 讀取失敗。請確認 Firestore 已建立並發布 firestore.rules。"+friendlyError(e);$("#view").prepend(n)}
-  }catch(e){console.error(e);const n=document.createElement("div");n.className="notice";n.textContent="網站介面可用，但 Firebase SDK／設定載入失敗。"+friendlyError(e);$("#view").prepend(n)}
+    try{
+      await loadConfig();
+      render();
+    }catch(e){
+      console.error("Firestore 初始化讀取失敗",e);
+      const n=document.createElement("div");n.className="notice";
+      n.textContent="表單已載入，但 Firestore 讀取失敗："+friendlyError(e);
+      $("#view").prepend(n);
+    }
+  }catch(e){
+    console.error("網站啟動失敗",e);
+    const n=document.createElement("div");n.className="notice";
+    n.textContent="網站介面可用，但 Firebase SDK／設定載入失敗："+friendlyError(e);
+    $("#view").prepend(n);
+  }
 }
 bindShell();
 boot();
