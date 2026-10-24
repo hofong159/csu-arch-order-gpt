@@ -105,8 +105,9 @@ service cloud.firestore {
 
       match /photos/{photoId} {
         allow get, list: if isAdmin();
-        allow create: if isAdmin() || (isPublicCode(code)
-          && request.resource.data.keys().hasOnly(['dataUrl','name','contentType','createdAt'])
+        allow create: if isAdmin() || (
+          isPublicCode(code)
+          && request.resource.data.keys().hasOnly(['dataUrl','name','contentType','createdAt','importedLegacyPhoto'])
           && request.resource.data.dataUrl is string
           && request.resource.data.dataUrl.size() < 700000
           && request.resource.data.dataUrl.matches('^data:image/jpeg;base64,.*$')
@@ -114,7 +115,8 @@ service cloud.firestore {
           && request.resource.data.createdAt == request.time
           && get(/databases/$(database)/documents/bookings/$(code)).data.status == 'approved'
           && get(/databases/$(database)/documents/bookings/$(code)).data.checkedInAt != null
-          && get(/databases/$(database)/documents/bookings/$(code)).data.checkedOutAt == null;
+          && get(/databases/$(database)/documents/bookings/$(code)).data.checkedOutAt == null
+        );
         allow update, delete: if isAdmin();
       }
     }
