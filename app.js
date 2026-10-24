@@ -414,20 +414,29 @@ async function loadMine(){
     if(!snap.exists())throw new Error("查無此申請，請確認查詢碼。");
     const data=snap.data();
     if(cleanPhone(data.phone)!==phone)throw new Error("手機號碼或查詢碼不正確。");
-    $("#myRecords").innerHTML=recordCard(data,code);feedback("lookupMessage","查詢成功。");
+    let photoRows=[];
+    if(Array.isArray(data.photoIds)&&data.photoIds.length){
+      const photoResults=await Promise.all(data.photoIds.slice(0,5).map(async id=>{
+        try{const p=await sdk.getDoc(sdk.doc(db,"bookings",code,"photos",id));return p.exists()?{id,...p.data()}:null}catch(e){return null}
+      }));
+      photoRows=photoResults.filter(Boolean);
+    }
+    $("#myRecords").innerHTML=recordCard(data,code,photoRows);feedback("lookupMessage","查詢成功。");
     if($("#checkinBtn"))$("#checkinBtn").onclick=async()=>{try{
       await sdk.updateDoc(sdk.doc(db,"bookings",code),{checkedInAt:sdk.serverTimestamp()});toast("簽到成功");await loadMine();
     }catch(e){feedback("lookupMessage",friendlyError(e),true)}};
     if($("#checkoutBtn"))$("#checkoutBtn").onclick=()=>checkout(code);
   }catch(e){$("#myRecords").innerHTML="";feedback("lookupMessage",friendlyError(e),true)}
 }
-function recordCard(d,code){
-  return '<article class="item"><h3>'+esc(d.item)+'</h3><p>申請人：'+esc(d.name)+'（'+esc(d.className)+'）</p><p>日期：'+esc(d.date)+'　時段：'+esc(d.start)+'–'+esc(d.endTime)+'（'+esc(d.hours)+' 小時）</p><p>狀態：<b>'+esc(statusLabel(d.status))+'</b></p><p>簽到：'+(d.checkedInAt?"已完成":"尚未簽到")+'；簽退：'+(d.checkedOutAt?"已完成":"尚未簽退")+'</p>'+
+function recordCard(d,code,photoRows=[]){
+  const photoHtml=photoRows.length
+    ?'<h4>已回傳照片</h4><div class="photo-grid">'+photoRows.map((p,i)=>'<a class="photo-thumb" href="'+esc(p.dataUrl)+'" target="_blank" rel="noopener"><img src="'+esc(p.dataUrl)+'" alt="簽退照片 '+(i+1)+'"><span>照片 '+(i+1)+'</span></a>').join("")+'</div>'
+    :(Array.isArray(d.photoIds)&&d.photoIds.length?'<p class="muted">已儲存 '+d.photoIds.length+' 張照片，但目前無法讀取預覽；請確認 Firestore Rules 已更新。</p>':"");
+  return '<article class="item"><h3>'+esc(d.item)+'</h3><p>申請人：'+esc(d.name)+'（'+esc(d.className)+'）</p><p>日期：'+esc(d.date)+'　時段：'+esc(d.start)+'–'+esc(d.endDate&&d.endDate!==d.date?d.endDate+" ":"") +esc(d.endTime)+'（'+esc(d.hours)+' 小時）</p><p>狀態：<b>'+esc(d.displayStatus||statusLabel(d.status))+'</b></p><p>簽到：'+(d.checkedInAt?"已完成":"尚未簽到")+'；簽退：'+(d.checkedOutAt?"已完成":"尚未簽退")+'</p>'+
     (d.status==="approved"&&!d.checkedInAt?'<button id="checkinBtn" class="primary">到場簽到</button>':"")+
     (d.checkedInAt&&!d.checkedOutAt?'<button id="checkoutBtn" class="primary">簽退並上傳照片</button>':"")+
     (d.status==="pending"?'<p class="muted">申請正在等待管理員核准。</p>':"")+
-    (d.status==="rejected"||d.status==="cancelled"?'<p class="muted">此申請未核准或已取消。</p>':"")+
-    ((d.photoIds||[]).length?'<p class="muted">已回傳 '+d.photoIds.length+' 張簽退照片。</p>':"")+'</article>';
+    (d.status==="rejected"||d.status==="cancelled"?'<p class="muted">此申請未核准或已取消。</p>':"")+photoHtml+'</article>';
 }
 async function compressImage(file){
   if(!file||!String(file.type||"").startsWith("image/"))throw new Error("請選擇照片檔案。");
@@ -1122,7 +1131,19 @@ async function adminSection(which){
     rows.sort((a,b)=>createdMillis(b.createdAt)-createdMillis(a.createdAt));
     c.innerHTML='<h3>申請／照片管理</h3><div class="table-wrap"><table><thead><tr><th>申請人／手機</th><th>項目／時間</th><th>狀態</th><th>簽到／照片</th><th>審核</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+esc(r.name)+'<br>'+esc(r.className)+'<br>'+esc(r.phone)+'</td><td>'+esc(r.item)+'<br>'+esc(r.date)+' '+esc(r.start)+'–'+esc(r.endDate&&r.endDate!==r.date?r.endDate+' ':'')+esc(r.endTime)+'<br><small>'+esc(r.purpose||"")+'</small></td><td>'+esc(r.displayStatus||statusLabel(r.status))+(r.legacyImportConflict?'<br><b style="color:#b45309">⚠ 匯入時段衝突，未佔用時段</b>':"")+'</td><td>'+(r.checkedInAt?"已簽到":"未簽到")+'／'+(r.checkedOutAt?"已簽退":"未簽退")+'<br>'+((r.photoIds||[]).map((p,i)=>'<button class="secondary" data-openphoto="'+esc(r.id)+'" data-photoid="'+esc(p)+'">照片'+(i+1)+'</button>').concat((Array.isArray(r.photos)?r.photos:[]).map((p,i)=>'<button class="secondary" data-openlegacy="'+esc(r.id)+'" data-legacyidx="'+i+'">舊照片'+(i+1)+'</button>')).join(" ")||"無照片")+'</td><td><select data-status="'+esc(r.id)+'">'+["pending","approved","rejected","cancelled","finished"].map(k=>'<option value="'+k+'" '+(r.status===k?"selected":"")+'>'+statusLabel(k)+'</option>').join("")+'</select><button class="secondary" data-savebooking="'+esc(r.id)+'">儲存</button></td></tr>').join("")+'</tbody></table></div>';
     $$("[data-savebooking]").forEach(b=>b.onclick=async()=>{const id=b.dataset.savebooking,status=$("[data-status='"+id+"']",c).value;try{await sdk.updateDoc(sdk.doc(db,"bookings",id),{status,reviewedAt:sdk.serverTimestamp()});if(["rejected","cancelled","finished"].includes(status)){const locks=await sdk.getDocs(sdk.query(sdk.collection(db,"reservationLocks"),sdk.where("bookingId","==",id)));for(const l of locks.docs)await sdk.deleteDoc(sdk.doc(db,"reservationLocks",l.id))}toast("申請狀態已更新");await adminSection("bookings")}catch(e){toast("更新失敗："+friendlyError(e))}});
-    $$("[data-openphoto]").forEach(b=>b.onclick=async()=>{const w=window.open("","_blank");if(!w)return toast("瀏覽器阻擋新視窗，請允許彈出視窗後重試");try{const d=await sdk.getDoc(sdk.doc(db,"bookings",b.dataset.openphoto,"photos",b.dataset.photoid));if(!d.exists())throw new Error("照片已清除");w.document.write('<!doctype html><meta charset="utf-8"><title>簽退照片</title><img style="max-width:100%;height:auto" src="'+d.data().dataUrl+'">')}catch(e){w.close();toast("無法開啟照片："+friendlyError(e))}});
+    $$("[data-openphoto]").forEach(b=>b.onclick=async()=>{
+      const w=window.open("","_blank");if(!w)return toast("瀏覽器阻擋新視窗，請允許彈出視窗後重試");
+      try{
+        const d=await sdk.getDoc(sdk.doc(db,"bookings",b.dataset.openphoto,"photos",b.dataset.photoid));
+        if(!d.exists())throw new Error("照片已清除或超過保留期限。");
+        w.document.open();
+        w.document.write('<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>簽退照片</title><style>body{margin:0;background:#111;color:#fff;font:16px Arial,sans-serif;text-align:center}img{display:block;max-width:96vw;max-height:88vh;margin:12px auto;object-fit:contain}p{padding:0 12px}</style><p>簽退照片</p><img id="photoPreview" alt="簽退照片"><p id="photoError" hidden>圖片無法顯示，可能已損毀或已清理。</p></html>');
+        w.document.close();
+        const img=w.document.getElementById("photoPreview"),error=w.document.getElementById("photoError");
+        img.onerror=()=>{img.hidden=true;error.hidden=false};
+        img.src=d.data().dataUrl;
+      }catch(e){w.close();toast("無法開啟照片："+friendlyError(e))}
+    });
     $$("[data-openlegacy]").forEach(b=>b.onclick=async()=>{
       const w=window.open("","_blank");if(!w)return toast("瀏覽器阻擋新視窗，請允許彈出視窗後重試");
       try{
