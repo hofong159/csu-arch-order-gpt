@@ -83,7 +83,12 @@ jobs:
                 data: { spaces: [{ id: "A", name: "A區", areaCode: "A" }] },
                 result: { courses: [{ date: "115/10/24", area: "A", start: "下午1:00", end: "下午1:45", label: "巢狀舊課表" }] }
               };
-              const wrappedCourse = scheduleRowsFromText(JSON.stringify(wrapped), "2026-10-24");
+              let wrappedCourse = [];
+              const nestedOriginalItems = config.items;
+              try {
+                config.items = [{id:"space_A",name:"A區",areaCode:"A",category:"booking"}];
+                wrappedCourse = scheduleRowsFromText(JSON.stringify(wrapped), "2026-10-24");
+              } finally { config.items = nestedOriginalItems; }
               const previewHtml = recordCard({
                 item: "A區", name: "測試", className: "建築四甲", date: "2026-10-24",
                 start: "13:00", endTime: "16:00", hours: 3, status: "approved",
