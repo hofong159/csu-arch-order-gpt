@@ -691,6 +691,8 @@ async function importLegacySnapshot(){
       const completed=/完成|已簽退|已結束|finished|complete|closed/.test(lowStatus);
       const isPast=endDateTime.getTime()<=Date.now();
       const status=cancelled?"cancelled":(completed||isPast)?"finished":"approved";
+      const legacyCheckedOut=/已簽退|已完成|完成|finished|complete|closed/.test(lowStatus);
+      const legacyCheckedIn=legacyCheckedOut||/已簽到|逾時未簽退|checked.?in/.test(lowStatus);
       let slots=[];
       if(status==="approved"&&itemId){
         const half=30*60*1000;
@@ -709,7 +711,7 @@ async function importLegacySnapshot(){
       const lockIds=lane===undefined?[]:slots.map(slot=>slot.key+"_"+lane);
       const durationHours=(endDateTime.getTime()-startDateTime.getTime())/3600000;
       const endAreaName=config.items.find(i=>i.id===itemId)?.name||String(areaRaw||"舊系統區域");
-      const photos=Array.isArray(row.photos)?row.photos.map(p=>typeof p==="string"?p:(p?.dataUrl||p?.url||p?.src||"")).filter(Boolean).slice(0,5):[];
+      const photos=Array.isArray(row.photos)?row.photos.map(p=>typeof p==="string"?p:(p?.url||p?.src||"")).filter(p=>/^https?:\/\//i.test(p)).slice(0,5):[];
       const legacyRecord={
         name,className:String(row.className||row.class||"舊系統匯入（班級未提供）"),
         phone:String(row.phone||"原站未提供電話"),borrowType,type:"booking",itemId:itemId||"",
@@ -721,7 +723,7 @@ async function importLegacySnapshot(){
         status,displayStatus:originalStatus,legacyImportConflict:conflicted,
         importedOriginal:true,sourceLegacyKey:rowKey,lockIds,photoIds:[],
         photos,photoPaths:Array.isArray(row.photoPaths)?row.photoPaths:[],
-        createdAt:sdk.serverTimestamp(),checkedInAt:null,checkedOutAt:null
+        createdAt:sdk.serverTimestamp(),checkedInAt:legacyCheckedIn?sdk.serverTimestamp():null,checkedOutAt:legacyCheckedOut?sdk.serverTimestamp():null
       };
       // Each active booking plus its time locks is committed as a single batch.
       // If a conflicting slot exists, preserve the booking but mark it for admin review.
@@ -909,7 +911,7 @@ async function adminSection(which){
   }
   if(which==="bookings"){
     const snap=await sdk.getDocs(sdk.query(sdk.collection(db,"bookings"),sdk.orderBy("createdAt","desc"))),rows=snap.docs.map(d=>({id:d.id,...d.data()}));
-    c.innerHTML='<h3>申請／照片管理</h3><div class="table-wrap"><table><thead><tr><th>申請人／手機</th><th>項目／時間</th><th>狀態</th><th>簽到／照片</th><th>審核</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+esc(r.name)+'<br>'+esc(r.className)+'<br>'+esc(r.phone)+'</td><td>'+esc(r.item)+'<br>'+esc(r.date)+' '+esc(r.start)+'–'+esc(r.endDate&&r.endDate!==r.date?r.endDate+' ':'')+esc(r.endTime)+'<br><small>'+esc(r.purpose||"")+'</small></td><td>'+esc(r.displayStatus||statusLabel(r.status))+'</td><td>'+(r.checkedInAt?"已簽到":"未簽到")+'／'+(r.checkedOutAt?"已簽退":"未簽退")+'<br>'+((r.photoIds||[]).map((p,i)=>'<button class="secondary" data-openphoto="'+esc(r.id)+'" data-photoid="'+esc(p)+'">照片'+(i+1)+'</button>').concat((Array.isArray(r.photos)?r.photos:[]).map((p,i)=>'<button class="secondary" data-openlegacy="'+esc(r.id)+'" data-legacyidx="'+i+'">舊照片'+(i+1)+'</button>')).join(" ")||"無照片")+'</td><td><select data-status="'+esc(r.id)+'">'+["pending","approved","rejected","cancelled","finished"].map(k=>'<option value="'+k+'" '+(r.status===k?"selected":"")+'>'+statusLabel(k)+'</option>').join("")+'</select><button class="secondary" data-savebooking="'+esc(r.id)+'">儲存</button></td></tr>').join("")+'</tbody></table></div>';
+    c.innerHTML='<h3>申請／照片管理</h3><div class="table-wrap"><table><thead><tr><th>申請人／手機</th><th>項目／時間</th><th>狀態</th><th>簽到／照片</th><th>審核</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+esc(r.name)+'<br>'+esc(r.className)+'<br>'+esc(r.phone)+'</td><td>'+esc(r.item)+'<br>'+esc(r.date)+' '+esc(r.start)+'–'+esc(r.endDate&&r.endDate!==r.date?r.endDate+' ':'')+esc(r.endTime)+'<br><small>'+esc(r.purpose||"")+'</small></td><td>'+esc(r.displayStatus||statusLabel(r.status))+(r.legacyImportConflict?'<br><b style="color:#b45309">⚠ 匯入時段衝突，未佔用時段</b>':"")+'</td><td>'+(r.checkedInAt?"已簽到":"未簽到")+'／'+(r.checkedOutAt?"已簽退":"未簽退")+'<br>'+((r.photoIds||[]).map((p,i)=>'<button class="secondary" data-openphoto="'+esc(r.id)+'" data-photoid="'+esc(p)+'">照片'+(i+1)+'</button>').concat((Array.isArray(r.photos)?r.photos:[]).map((p,i)=>'<button class="secondary" data-openlegacy="'+esc(r.id)+'" data-legacyidx="'+i+'">舊照片'+(i+1)+'</button>')).join(" ")||"無照片")+'</td><td><select data-status="'+esc(r.id)+'">'+["pending","approved","rejected","cancelled","finished"].map(k=>'<option value="'+k+'" '+(r.status===k?"selected":"")+'>'+statusLabel(k)+'</option>').join("")+'</select><button class="secondary" data-savebooking="'+esc(r.id)+'">儲存</button></td></tr>').join("")+'</tbody></table></div>';
     $$("[data-savebooking]").forEach(b=>b.onclick=async()=>{const id=b.dataset.savebooking,status=$("[data-status='"+id+"']",c).value;try{await sdk.updateDoc(sdk.doc(db,"bookings",id),{status,reviewedAt:sdk.serverTimestamp()});if(["rejected","cancelled","finished"].includes(status)){const locks=await sdk.getDocs(sdk.query(sdk.collection(db,"reservationLocks"),sdk.where("bookingId","==",id)));for(const l of locks.docs)await sdk.deleteDoc(sdk.doc(db,"reservationLocks",l.id))}toast("申請狀態已更新");await adminSection("bookings")}catch(e){toast("更新失敗："+friendlyError(e))}});
     $("[data-openphoto]").forEach(b=>b.onclick=async()=>{const w=window.open("","_blank");if(!w)return toast("瀏覽器阻擋新視窗，請允許彈出視窗後重試");try{const d=await sdk.getDoc(sdk.doc(db,"bookings",b.dataset.openphoto,"photos",b.dataset.photoid));if(!d.exists())throw new Error("照片已清除");w.document.write('<!doctype html><meta charset="utf-8"><title>簽退照片</title><img style="max-width:100%;height:auto" src="'+d.data().dataUrl+'">')}catch(e){w.close();toast("無法開啟照片："+friendlyError(e))}});
     $("[data-openlegacy]").forEach(b=>b.onclick=async()=>{
