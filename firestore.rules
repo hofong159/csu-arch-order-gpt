@@ -105,7 +105,7 @@ service cloud.firestore {
 
       match /photos/{photoId} {
         allow get, list: if isAdmin();
-        allow create: if isPublicCode(code)
+        allow create: if isAdmin() || (isPublicCode(code)
           && request.resource.data.keys().hasOnly(['dataUrl','name','contentType','createdAt'])
           && request.resource.data.dataUrl is string
           && request.resource.data.dataUrl.size() < 700000
