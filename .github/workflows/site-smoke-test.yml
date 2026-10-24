@@ -46,10 +46,10 @@ jobs:
             for (let attempt = 0; attempt < 12; attempt++) {
               await page.waitForTimeout(2500);
               appAsset = await page.locator("script[src*='app.js']").getAttribute("src").catch(() => "");
-              if (appAsset.includes("20261024-admin-load-timeout1")) break;
+              if (appAsset.includes("20261024-admin-load-timeout2")) break;
               response = await page.goto(url + "&retry=" + attempt, { waitUntil: "domcontentloaded", timeout: 60000 });
             }
-            if (!appAsset.includes("20261024-admin-load-timeout1")) throw new Error("LATEST_GITHUB_PAGES_ASSET_NOT_DEPLOYED: " + appAsset);
+            if (!appAsset.includes("20261024-admin-load-timeout2")) throw new Error("LATEST_GITHUB_PAGES_ASSET_NOT_DEPLOYED: " + appAsset);
             console.log("URL:", page.url());
             console.log("HTTP:", response?.status());
             console.log("TITLE:", await page.title());
@@ -73,7 +73,7 @@ jobs:
             console.log("AFTER TAB CLICK:", workshopHeading);
             if (!workshopHeading.includes("正修微工坊")) throw new Error("TAB_CLICK_FAILED: " + workshopHeading);
             const appSource = await page.evaluate(async () => await (await fetch(document.querySelector("script[src*='app.js']").src)).text());
-            if (!appSource.includes('p.onclick=async(event)=>') || !appSource.includes('quickSeedBtn') || !appSource.includes('if(quick)await seedBaselineData()') || !appSource.includes('items') || !appSource.includes('schedule') || !appSource.includes('bookings')) {
+            if (!appSource.includes('p.onclick=async(event)=>') || !appSource.includes('quickSeedBtn') || !appSource.includes('if(quick)await seedBaselineData()') || !appSource.includes('items') || !appSource.includes('schedule') || !appSource.includes('bookings') || !appSource.includes('本次沒有寫入資料。')) {
               throw new Error("ADMIN_DELEGATED_NAV_OR_IMPORT_ACTION_MISSING");
             }
             console.log("ADMIN NAV HANDLER:", appSource.includes('p.onclick=async(event)=>'));
