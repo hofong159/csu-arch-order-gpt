@@ -606,8 +606,10 @@ async function importLegacySnapshot(){
     const hasArrays=o=>o&&[o.spaces,o.courses,o.schedule,o.bookings,o.reservations].some(Array.isArray);const root=hasArrays(parsed?.data)?parsed.data:(hasArrays(parsed?.board)?parsed.board:(hasArrays(parsed)?parsed:parsed));
     const defaultDate=importDate(root.date||root.selectedDate||root.day||root.today,$("#legacyImportDate")?.value||today())||$("#legacyImportDate")?.value||today();
     const spaces=Array.isArray(root.spaces)?root.spaces:[];
-    const courses=Array.isArray(root.courses)?root.courses:(Array.isArray(root.schedule)?root.schedule:[]);
-    const bookings=Array.isArray(root.bookings)?root.bookings:(Array.isArray(root.reservations)?root.reservations:[]);
+    const topRows=Array.isArray(root)?root:null;
+    const topLooksLikeBookings=!!(topRows&&topRows.some(row=>row&&("borrowType" in row||("status" in row&&"name" in row))));
+    const courses=topRows&&!topLooksLikeBookings?topRows:(Array.isArray(root.courses)?root.courses:(Array.isArray(root.schedule)?root.schedule:[]));
+    const bookings=topRows&&topLooksLikeBookings?topRows:(Array.isArray(root.bookings)?root.bookings:(Array.isArray(root.reservations)?root.reservations:[]));
     if(!spaces.length&&!courses.length&&!bookings.length)throw new Error("JSON 內找不到 spaces、courses、bookings 或 reservations 陣列。");
     await loadConfig();
     const initialItems=config.items.slice(),oldToNew=new Map(),spaceOps=[];
