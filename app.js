@@ -109,6 +109,86 @@ function render(){
   const f=$("#requestForm");if(f)f.onsubmit=submitRequest;
 }
 function intersect(a,b,c,d){return a<d&&b>c}
+function stableHash(value){
+  let h=2166136261;
+  for(const ch of String(value)){h^=ch.charCodeAt(0);h=Math.imul(h,16777619)}
+  return (h>>>0).toString(16).padStart(8,"0");
+}
+function parseCsvText(text){
+  const rows=[];let row=[],cell="",quoted=false;
+  for(let i=0;i<text.length;i++){
+    const ch=text[i],next=text[i+1];
+    if(ch==='"'){if(quoted&&next==='"'){cell+='"';i++}else quoted=!quoted}
+    else if(ch===","&&!quoted){row.push(cell.trim());cell=""}
+    else if((ch==="\n"||ch==="\r")&&!quoted){if(ch==="\r"&&next==="\n")i++;row.push(cell.trim());cell="";if(row.some(v=>v!==""))rows.push(row);row=[]}
+    else cell+=ch;
+  }
+  if(cell!==""||row.length){row.push(cell.trim());if(row.some(v=>v!==""))rows.push(row)}
+  return rows;
+}
+function importDate(raw,fallback){
+  if(raw==null||String(raw).trim()==="")return fallback;
+  const v=String(raw).trim();
+  let m=v.match(/^(\d{4})\s*[-/.年]\s*(\d{1,2})\s*[-/.月]\s*(\d{1,2})\s*日?$/);
+  if(!m)m=v.match(/^(\d{2,3})\s*[/.-]\s*(\d{1,2})\s*[/.-]\s*(\d{1,2})$/);
+  if(!m&&/^\d{5}(?:\.\d+)?$/.test(v)){const d=new Date(Date.UTC(1899,11,30)+Number(v)*86400000);return d.toISOString().slice(0,10)}
+  if(!m)return "";
+  let y=Number(m[1]);if(y<1911)y+=1911;
+  const mo=Number(m[2]),day=Number(m[3]),d=new Date(Date.UTC(y,mo-1,day));
+  if(d.getUTCFullYear()!==y||d.getUTCMonth()!==mo-1||d.getUTCDate()!==day)return "";
+  return y+"-"+String(mo).padStart(2,"0")+"-"+String(day).padStart(2,"0");
+}
+function importTime(raw){
+  if(raw==null)return "";
+  let v=String(raw).trim(),marker=(v.match(/上午|下午|晚上|中午|AM|PM/i)||[])[0];
+  v=v.replace(/上午|下午|晚上|中午|AM|PM/ig,"").trim();
+  const m=v.match(/^(\d{1,2})[:.](\d{2})(?::\d{2})?$/);if(!m)return "";
+  let h=Number(m[1]),min=Number(m[2]);if(h>23||min>59)return "";
+  if(marker&&/下午|晚上|中午|PM/i.test(marker)&&h<12)h+=12;
+  if(marker&&/上午|AM/i.test(marker)&&h===12)h=0;
+  return String(h).padStart(2,"0")+":"+String(min).padStart(2,"0");
+}
+function areaKey(value){return String(value||"").trim().replace(/\s/g,"").replace(/^區/,"").replace(/區$/,"").toUpperCase()}
+function findAreaItem(value){
+  if(!value)return null;
+  const raw=String(value).trim(),key=areaKey(raw);
+  return config.items.find(i=>String(i.id)===raw||String(i.areaCode||"").toUpperCase()===key||String(i.name||"").replace(/\s/g,"")===raw.replace(/\s/g,"")||areaKey(i.name)===key)||null;
+}
+function scheduleRowsFromText(text,defaultDate){
+  const trimmed=String(text||"").trim();if(!trimmed)throw new Error("請選擇課表檔案或貼上 CSV／JSON。");
+  let input=[],jsonRoot=null;
+  if(trimmed.startsWith("{")||trimmed.startsWith("[")){
+    try{jsonRoot=JSON.parse(trimmed)}catch(e){throw new Error("JSON 格式錯誤："+e.message)}
+    if(Array.isArray(jsonRoot))input=jsonRoot;
+    else input=jsonRoot.courses||jsonRoot.schedule||jsonRoot.classes||jsonRoot.board?.courses||[];
+    if(!Array.isArray(input)||!input.length)throw new Error("JSON 內找不到 courses／schedule／classes 資料。");
+    if(jsonRoot.date||jsonRoot.selectedDate||jsonRoot.board?.date)defaultDate=importDate(jsonRoot.date||jsonRoot.selectedDate||jsonRoot.board?.date,defaultDate)||defaultDate;
+  }else{
+    const table=parseCsvText(trimmed);if(!table.length)throw new Error("CSV 沒有資料。");
+    const headers=table[0].map(v=>String(v).toLowerCase().replace(/[\s_\-（）()]/g,""));
+    const idx=names=>headers.findIndex(h=>names.some(n=>h===n||h.includes(n)));
+    const idate=idx(["date","日期","上課日期","課程日期"]),istart=idx(["start","開始時間","起始時間","開始"]),iend=idx(["end","結束時間","下課時間","結束"]),iarea=idx(["areacode","area","區域","教室","空間","場地","itemid","區"]),ititle=idx(["title","label","course","課程名稱","課程","課名","科目","教師"]);
+    const hasHeader=[idate,istart,iend,iarea,ititle].some(i=>i>=0);
+    input=hasHeader?table.slice(1).map(row=>({date:idate>=0?row[idate]:"",start:istart>=0?row[istart]:"",end:iend>=0?row[iend]:"",area:iarea>=0?row[iarea]:"",title:ititle>=0?row[ititle]:""})):table.map((row,index)=>{
+      if(row.length>=3&&importTime(row[1])&&importTime(row[2]))return {date:row[0],start:row[1],end:row[2],title:row[3]||"課表占用",area:row[4]||""};
+      if(row.length>=4&&importTime(row[2])&&importTime(row[3]))return {date:row[0],area:row[1],start:row[2],end:row[3],title:row[4]||"課表占用"};
+      if(row.length>=3&&importTime(row[0])&&importTime(row[1]))return {date:defaultDate,start:row[0],end:row[1],title:row[2]||"課表占用",area:row[3]||""};
+      throw new Error("第 "+(index+1)+" 列格式無法辨識；請使用日期,開始時間,結束時間,課程名稱,區域，或有標題的 CSV。");
+    });
+  }
+  return input.map((r,index)=>{
+    const date=importDate(r.date??r.courseDate??r.classDate??r["日期"],defaultDate);
+    const start=importTime(r.start??r.startTime??r.begin??r.timeStart??r["開始時間"]);
+    const end=importTime(r.end??r.endTime??r.finish??r.timeEnd??r["結束時間"]);
+    const title=String(r.title??r.label??r.course??r.courseName??r.subject??r["課程名稱"]??r["課程"]??"課表占用").trim();
+    const area=String(r.areaCode??r.area??r.space??r.room??r.classroom??r.itemId??r["區域"]??r["教室"]??r["空間"]??"").trim();
+    if(!date)throw new Error("第 "+(index+1)+" 筆日期無法辨識。請輸入 YYYY-MM-DD，或設定預設日期。");
+    if(!start||!end||start>=end)throw new Error("第 "+(index+1)+" 筆「"+title+"」的時間格式錯誤。");
+    const item=area?findAreaItem(area):null;
+    if(area&&!item)throw new Error("第 "+(index+1)+" 筆找不到區域「"+area+"」。請先匯入原站空間，再匯入課表。");
+    return {date,start,end,title,itemId:item?.id||"",areaCode:item?.areaCode||(item?areaKey(item.name):""),type:"course"};
+  });
+}
 async function checkCourseConflicts(start,end,itemId){
   const dates=new Set();for(let d=new Date(start);d<end;d.setDate(d.getDate()+1))dates.add(localDate(d));
   for(const day of dates){
