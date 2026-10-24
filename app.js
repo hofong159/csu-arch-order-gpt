@@ -510,7 +510,7 @@ function withFirestoreTimeout(promise,label,timeoutMs=12000){
   let timer;
   const timeout=new Promise((_,reject)=>{
     timer=setTimeout(()=>{
-      const error=new Error(label+"逾時：Firestore 在 "+Math.round(timeoutMs/1000)+" 秒內沒有回應。請檢查網路、Firebase 專案狀態及 Firestore Rules；可重試，不會因逾時自動刪除資料。");
+      const error=new Error(label+"逾時：Firestore 在 "+Math.round(timeoutMs/1000)+" 秒內沒有回應。這通常是資料庫連線／網路傳輸沒有完成；Rules 權限問題通常會回傳 permission-denied，而不是逾時。請確認 Firebase 專案、Firestore Database 已建立、網路／防火牆允許連線，然後重試。此逾時不會自動刪除資料。");
       error.code="csu/firestore-timeout";
       reject(error);
     },timeoutMs);
@@ -1258,7 +1258,10 @@ async function boot(){
       import("./firebase-config.js")
     ]);
     sdk=Object.assign({},appSdk,authSdk,firestoreSdk);firebaseConfig=configModule.firebaseConfig;
-    app=sdk.initializeApp(firebaseConfig);auth=sdk.getAuth(app);db=sdk.getFirestore(app);
+    app=sdk.initializeApp(firebaseConfig);auth=sdk.getAuth(app);
+    // Some campus networks, privacy filters, and proxies interfere with Firestore WebChannel streaming.
+    // Auto-detect long polling to prevent reads from hanging indefinitely on those networks.
+    db=sdk.initializeFirestore(app,{experimentalAutoDetectLongPolling:true});
     try{await loadConfig();render()}catch(e){console.error(e);const n=document.createElement("div");n.className="notice";n.textContent="表單已載入，但 Firestore 讀取失敗。請確認 Firestore 已建立並發布 firestore.rules。"+friendlyError(e);$("#view").prepend(n)}
   }catch(e){console.error(e);const n=document.createElement("div");n.className="notice";n.textContent="網站介面可用，但 Firebase SDK／設定載入失敗。"+friendlyError(e);$("#view").prepend(n)}
 }
