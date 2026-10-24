@@ -994,7 +994,12 @@ async function importLegacySnapshot(){
     feedback("legacyImportMessage","舊資料匯入完成：空間 "+spaceOps.length+" 筆、課表 "+courseWrites+" 筆、借用紀錄 "+bookingWrites+" 筆、時段鎖 "+lockWrites+" 格、內嵌照片 "+importedInlinePhotos+" 張。"+(skippedLegacyPhotos?"有 "+skippedLegacyPhotos+" 個照片項目無法匯入（格式不支援、網址不可存取或超過限制）。":"")+(skippedBookings?"有 "+skippedBookings+" 筆仍在使用但時段已衝突，已標記供管理員確認。":"")+"重複匯入會略過已匯入紀錄。");
     toast("舊系統資料匯入完成");
   }catch(e){
-    feedback("legacyImportMessage","舊資料匯入失敗："+friendlyError(e)+"。匯入途中可能已有部分資料成功寫入；修正來源後可安全重試，已匯入資料會略過重複項目。",true);
+    const message=friendlyError(e);
+    if(message==="請選擇 JSON 檔案，或貼上舊系統資料。"){
+      feedback("legacyImportMessage","尚未開始匯入：請先選擇舊網站匯出的 JSON 檔，或貼上 JSON 內容。本次沒有寫入資料。",true);
+    }else{
+      feedback("legacyImportMessage","舊資料匯入失敗："+message+"。匯入途中可能已有部分資料成功寫入；修正來源後可安全重試，已匯入資料會略過重複項目。",true);
+    }
   }finally{if(button){button.disabled=false;button.textContent=original}}
 }
 
