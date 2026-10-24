@@ -87,6 +87,7 @@ jobs:
                 photoCompressor: typeof compressImage,
                 photoCleaner: typeof cleanupExpiredPhotos,
                 courseBoard: typeof loadPublicCourseBoard,
+                legacyExportSnippet: typeof LEGACY_EXPORT_SNIPPET === "string" && LEGACY_EXPORT_SNIPPET.includes(".getBoard(day)"),
                 csvRows: parseCsvText('日期,區域,開始時間,結束時間,課程名稱\n2026-10-24,A,13:00,13:45,基本設計').length,
                 mappedCourseCount: mapped.length,
                 mappedItemId: mapped[0]?.itemId || "",
@@ -99,12 +100,12 @@ jobs:
             console.log("FEATURE FUNCTIONS:", JSON.stringify(featureFns));
             if (featureFns.legacyImporter !== "function" || featureFns.scheduleParser !== "function" ||
                 featureFns.photoCompressor !== "function" || featureFns.photoCleaner !== "function" ||
-                featureFns.courseBoard !== "function" || featureFns.csvRows !== 2 ||
+                featureFns.courseBoard !== "function" || !featureFns.legacyExportSnippet || featureFns.csvRows !== 2 ||
                 featureFns.mappedCourseCount !== 1 || featureFns.mappedItemId !== "space_A" ||
                 featureFns.pmTime !== "13:30" || featureFns.parsedDate !== "2026-10-24" ||
                 !featureFns.photoCompressed || !featureFns.legacyDateParsed ||
-                !appSource.includes('$("[data-openphoto]").forEach') ||
-                !appSource.includes('$("[data-openlegacy]").forEach') ||
+                !appSource.includes('$$("[data-openphoto]").forEach') ||
+                !appSource.includes('$$("[data-openlegacy]").forEach') ||
                 !appSource.includes("inlinePhotoRecords.forEach")) {
               throw new Error("TIMETABLE_PHOTO_OR_LEGACY_IMPORT_FEATURE_CHECK_FAILED");
             }
