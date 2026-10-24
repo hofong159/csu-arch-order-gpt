@@ -41,6 +41,92 @@ const BASELINE_LEGACY_BOOKINGS = [
   {key:"A_20261023_2330", area:"A", name:"楊○宇", borrowType:"小組借用", date:"2026-10-23", start:"23:30", endDate:"2026-10-24", endTime:"11:30"},
   {key:"H_20261022_1700", area:"H", name:"顏○晰", borrowType:"單人借用", date:"2026-10-22", start:"17:00", endDate:"2026-10-27", endTime:"17:00"}
 ];
+const LEGACY_EXPORT_SNIPPET = String.raw`(function () {
+  if (!window.google || !google.script || !google.script.run) {
+    alert("請在舊網站執行這段程式，而且要選到包含 #date 的 Google Apps Script 網頁框架。");
+    return;
+  }
+  function isoDate(d) {
+    return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+  }
+  var start = prompt("要匯出的起始日期（YYYY-MM-DD，最多 31 天）", isoDate(new Date()));
+  if (!start) return;
+  var end = prompt("要匯出的結束日期（YYYY-MM-DD，最多 31 天）", start);
+  if (!end) return;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+    alert("日期格式必須是 YYYY-MM-DD。"); return;
+  }
+  var begin = new Date(start + "T12:00:00"), finish = new Date(end + "T12:00:00");
+  var count = Math.round((finish - begin) / 86400000) + 1;
+  if (!Number.isFinite(count) || count < 1 || count > 31) {
+    alert("請選擇 1 至 31 天的日期範圍。"); return;
+  }
+  var days = [];
+  for (var i = 0; i < count; i++) {
+    var d = new Date(begin); d.setDate(d.getDate() + i); days.push(isoDate(d));
+  }
+  var spaces = new Map(), courses = new Map(), bookings = new Map(), index = 0;
+  function keyOf(row, fallback) {
+    return String(row && (row.id || row.key || row.code) || fallback);
+  }
+  function next() {
+    if (index >= days.length) {
+      var payload = {
+        source: "Google Apps Script getBoard export",
+        date: start,
+        dateFrom: start,
+        dateTo: end,
+        spaces: Array.from(spaces.values()),
+        courses: Array.from(courses.values()),
+        bookings: Array.from(bookings.values())
+      };
+      var blob = new Blob([JSON.stringify(payload, null, 2)], {type:"application/json"});
+      var url = URL.createObjectURL(blob), a = document.createElement("a");
+      a.href = url; a.download = "csu-old-data-" + start + "-to-" + end + ".json";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 1500);
+      console.log("舊資料匯出完成", {
+        days: days.length, spaces: payload.spaces.length,
+        courses: payload.courses.length, bookings: payload.bookings.length
+      });
+      alert("匯出完成！空間 " + payload.spaces.length + " 筆、課表 " +
+        payload.courses.length + " 筆、借用紀錄 " + payload.bookings.length +
+        " 筆。把下載的 JSON 上傳到新網站「管理員後台 → 初始資料匯入」。");
+      return;
+    }
+    var day = days[index++];
+    google.script.run
+      .withSuccessHandler(function (raw) {
+        var data = raw && raw.data ? raw.data : (raw || {});
+        (Array.isArray(data.spaces) ? data.spaces : []).forEach(function (row) {
+          spaces.set(keyOf(row, row.name || row.label || JSON.stringify(row)), row);
+        });
+        (Array.isArray(data.courses) ? data.courses : []).forEach(function (row) {
+          var item = Object.assign({}, row, {date: row.date || row.courseDate || day});
+          var k = [item.date, item.areaCode || item.area || item.space || "",
+            item.start || item.startTime || "", item.end || item.endTime || "",
+            item.label || item.title || item.course || ""].join("|");
+          courses.set(k, item);
+        });
+        (Array.isArray(data.bookings) ? data.bookings : (Array.isArray(data.reservations) ? data.reservations : [])).forEach(function (row) {
+          var item = Object.assign({}, row, {date: row.date || row.bookingDate || day});
+          var k = keyOf(item, [item.name || item.owner || "", item.area || item.space || "",
+            item.start || item.startTime || "", item.end || item.endTime || "",
+            item.borrowType || "", item.phone || ""].join("|"));
+          bookings.set(k, item);
+        });
+        console.log("已匯出", day, "課表", (data.courses || []).length,
+          "借用", (data.bookings || data.reservations || []).length);
+        next();
+      })
+      .withFailureHandler(function (error) {
+        alert("匯出 " + day + " 失敗：" + (error && error.message || error) +
+          "。已停止，請檢查舊網站連線或 Apps Script 權限。");
+      })
+      .getBoard(day);
+  }
+  next();
+})();`;
 const defaultRules = {
   booking:"每區最多兩組，單組不得獨占。請愛惜空間與設備，使用後清潔復原。",
   borrowing:"借出及歸還時請確認物品狀況，並依管理員公告辦理。",
