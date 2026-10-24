@@ -321,9 +321,8 @@ function scheduleRowsFromText(text,defaultDate){
     root=Array.isArray(jsonRoot)?jsonRoot:unwrapLegacyPayload(jsonRoot);
     if(Array.isArray(root))input=root;
     else{
-      const arrays=[root.courses,root.schedule,root.classes,root.lessons,root.timetable,root.board?.courses,root.data?.courses];
-      input=arrays.find(a=>Array.isArray(a)&&a.length>0)||arrays.find(Array.isArray)||[];
-      const rootDate=root.date||root.selectedDate||root.day||root.today||root.dateFrom||root.fromDate||root.board?.date||defaultDate;
+      input=legacyArray(jsonRoot,["courses","schedule","classes","lessons","timetable"]);
+      const rootDate=legacyValue(jsonRoot,["date","selectedDate","day","today","dateFrom","fromDate"])||defaultDate;
       defaultDate=importDate(rootDate,defaultDate)||defaultDate;
     }
     if(!Array.isArray(input)||!input.length)throw new Error("JSON 內找不到非空的 courses／schedule／classes／lessons 陣列。請確認匯入的是 getBoard() 回傳 JSON，不是舊網頁 HTML。");
@@ -801,12 +800,12 @@ async function importLegacySnapshot(){
     try{parsed=JSON.parse(raw)}catch(e){throw new Error("JSON 格式錯誤。請匯入舊系統 getBoard() 的資料 JSON，不是整份 HTML 原始碼。"+e.message)}
     const root=Array.isArray(parsed)?parsed:unwrapLegacyPayload(parsed);
     const fallbackDate=$("#legacyImportDate")?.value||today();
-    const defaultDate=importDate(root.date||root.selectedDate||root.day||root.today||root.dateFrom||root.fromDate||root.board?.date,fallbackDate)||fallbackDate;
-    const spaces=Array.isArray(root)?[]:(root.spaces||root.areas||root.rooms||root.locations||[]);
+    const defaultDate=importDate(legacyValue(parsed,["date","selectedDate","day","today","dateFrom","fromDate"])||root.date,fallbackDate)||fallbackDate;
+    const spaces=Array.isArray(root)?[]:legacyArray(parsed,["spaces","areas","rooms","locations"]);
     const topRows=Array.isArray(root)?root:null;
     const topLooksLikeBookings=!!(topRows&&topRows.some(row=>row&&("borrowType" in row||("status" in row&&"name" in row))));
-    const courses=topRows&&!topLooksLikeBookings?topRows:(root.courses||root.schedule||root.classes||root.lessons||root.timetable||[]);
-    const bookings=topRows&&topLooksLikeBookings?topRows:(root.bookings||root.reservations||root.appointments||root.records||[]);
+    const courses=topRows&&!topLooksLikeBookings?topRows:legacyArray(parsed,["courses","schedule","classes","lessons","timetable"]);
+    const bookings=topRows&&topLooksLikeBookings?topRows:legacyArray(parsed,["bookings","reservations","appointments","records"]);
     if(!spaces.length&&!courses.length&&!bookings.length)throw new Error("JSON 內找不到 spaces、courses、bookings 或 reservations 陣列。");
     await loadConfig();
     const initialItems=config.items.slice(),oldToNew=new Map(),spaceOps=[];
@@ -1087,7 +1086,7 @@ async function adminSection(which){
         if(raw.startsWith("{")){
           let parsedJson;
           try{parsedJson=JSON.parse(raw)}catch(e){throw new Error("JSON 格式錯誤："+e.message)}
-          const legacyRoot=unwrapLegacyPayload(parsedJson);const spaces=legacyRoot.spaces||legacyRoot.areas||legacyRoot.rooms||legacyRoot.locations||[];
+          const spaces=legacyArray(parsedJson,["spaces","areas","rooms","locations"]);
           if(Array.isArray(spaces)&&spaces.length){
             const existing=config.items;
             const batch=sdk.writeBatch(db);let writes=0;
