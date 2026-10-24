@@ -769,13 +769,14 @@ async function importLegacySnapshot(){
     }
     let parsed;
     try{parsed=JSON.parse(raw)}catch(e){throw new Error("JSON 格式錯誤。請匯入舊系統 getBoard() 的資料 JSON，不是整份 HTML 原始碼。"+e.message)}
-    const hasArrays=o=>o&&[o.spaces,o.courses,o.schedule,o.bookings,o.reservations].some(Array.isArray);const root=hasArrays(parsed?.data)?parsed.data:(hasArrays(parsed?.board)?parsed.board:(hasArrays(parsed)?parsed:parsed));
-    const defaultDate=importDate(root.date||root.selectedDate||root.day||root.today,$("#legacyImportDate")?.value||today())||$("#legacyImportDate")?.value||today();
-    const spaces=Array.isArray(root.spaces)?root.spaces:[];
+    const root=Array.isArray(parsed)?parsed:unwrapLegacyPayload(parsed);
+    const fallbackDate=$("#legacyImportDate")?.value||today();
+    const defaultDate=importDate(root.date||root.selectedDate||root.day||root.today||root.dateFrom||root.fromDate||root.board?.date,fallbackDate)||fallbackDate;
+    const spaces=Array.isArray(root)?[]:(root.spaces||root.areas||root.rooms||root.locations||[]);
     const topRows=Array.isArray(root)?root:null;
     const topLooksLikeBookings=!!(topRows&&topRows.some(row=>row&&("borrowType" in row||("status" in row&&"name" in row))));
-    const courses=topRows&&!topLooksLikeBookings?topRows:(Array.isArray(root.courses)?root.courses:(Array.isArray(root.schedule)?root.schedule:[]));
-    const bookings=topRows&&topLooksLikeBookings?topRows:(Array.isArray(root.bookings)?root.bookings:(Array.isArray(root.reservations)?root.reservations:[]));
+    const courses=topRows&&!topLooksLikeBookings?topRows:(root.courses||root.schedule||root.classes||root.lessons||root.timetable||[]);
+    const bookings=topRows&&topLooksLikeBookings?topRows:(root.bookings||root.reservations||root.appointments||root.records||[]);
     if(!spaces.length&&!courses.length&&!bookings.length)throw new Error("JSON 內找不到 spaces、courses、bookings 或 reservations 陣列。");
     await loadConfig();
     const initialItems=config.items.slice(),oldToNew=new Map(),spaceOps=[];
@@ -1056,7 +1057,7 @@ async function adminSection(which){
         if(raw.startsWith("{")){
           let parsedJson;
           try{parsedJson=JSON.parse(raw)}catch(e){throw new Error("JSON 格式錯誤："+e.message)}
-          const spaces=parsedJson.spaces||parsedJson.board?.spaces||[];
+          const legacyRoot=unwrapLegacyPayload(parsedJson);const spaces=legacyRoot.spaces||legacyRoot.areas||legacyRoot.rooms||legacyRoot.locations||[];
           if(Array.isArray(spaces)&&spaces.length){
             const existing=config.items;
             const batch=sdk.writeBatch(db);let writes=0;
