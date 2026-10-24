@@ -1259,9 +1259,9 @@ async function boot(){
     ]);
     sdk=Object.assign({},appSdk,authSdk,firestoreSdk);firebaseConfig=configModule.firebaseConfig;
     app=sdk.initializeApp(firebaseConfig);auth=sdk.getAuth(app);
-    // Some campus networks, privacy filters, and proxies interfere with Firestore WebChannel streaming.
-    // Auto-detect long polling to prevent reads from hanging indefinitely on those networks.
-    db=sdk.initializeFirestore(app,{experimentalAutoDetectLongPolling:true});
+    // Force long polling: some proxies/firewalls still stall Firestore's auto-detected WebChannel.
+    // This is intentionally used instead of experimentalAutoDetectLongPolling after repeated 12s read hangs.
+    db=sdk.initializeFirestore(app,{experimentalForceLongPolling:true});
     try{await loadConfig();render()}catch(e){console.error(e);const n=document.createElement("div");n.className="notice";n.textContent="表單已載入，但 Firestore 讀取失敗。請確認 Firestore 已建立並發布 firestore.rules。"+friendlyError(e);$("#view").prepend(n)}
   }catch(e){console.error(e);const n=document.createElement("div");n.className="notice";n.textContent="網站介面可用，但 Firebase SDK／設定載入失敗。"+friendlyError(e);$("#view").prepend(n)}
 }
