@@ -46,10 +46,10 @@ jobs:
             for (let attempt = 0; attempt < 12; attempt++) {
               await page.waitForTimeout(2500);
               appAsset = await page.locator("script[src*='app.js']").getAttribute("src").catch(() => "");
-              if (appAsset.includes("20261024-schedule-photo-fix3")) break;
+              if (appAsset.includes("20261024-admin-load-timeout1")) break;
               response = await page.goto(url + "&retry=" + attempt, { waitUntil: "domcontentloaded", timeout: 60000 });
             }
-            if (!appAsset.includes("20261024-schedule-photo-fix3")) throw new Error("LATEST_GITHUB_PAGES_ASSET_NOT_DEPLOYED: " + appAsset);
+            if (!appAsset.includes("20261024-admin-load-timeout1")) throw new Error("LATEST_GITHUB_PAGES_ASSET_NOT_DEPLOYED: " + appAsset);
             console.log("URL:", page.url());
             console.log("HTTP:", response?.status());
             console.log("TITLE:", await page.title());
@@ -109,6 +109,7 @@ jobs:
               const photo = await compressImage(new File([blob],"smoke.png",{type:"image/png"}));
               return {
                 legacyImporter: typeof importLegacySnapshot,
+                firestoreTimeoutHelper: typeof withFirestoreTimeout,
                 scheduleParser: typeof scheduleRowsFromText,
                 nestedLegacyArray: legacyArray(wrapped, ["spaces"]).length === 1 && legacyArray(wrapped, ["courses"]).length === 1,
                 photoCompressor: typeof compressImage,
@@ -132,7 +133,9 @@ jobs:
               };
             });
             console.log("FEATURE FUNCTIONS:", JSON.stringify(featureFns));
-            if (featureFns.legacyImporter !== "function" || featureFns.scheduleParser !== "function" ||
+            if (featureFns.legacyImporter !== "function" || featureFns.firestoreTimeoutHelper !== "function" || featureFns.scheduleParser !== "function" ||
+                !appSource.includes('withFirestoreTimeout(sdk.getDocs(sdk.collection(db,"schedule"))') ||
+                !appSource.includes('withFirestoreTimeout(sdk.getDocs(sdk.collection(db,"bookings"))') ||
                 featureFns.photoCompressor !== "function" || featureFns.photoCleaner !== "function" ||
                 featureFns.courseBoard !== "function" || !featureFns.legacyExportSnippet || featureFns.csvRows !== 2 ||
                 featureFns.mappedCourseCount !== 1 || featureFns.mappedItemId !== "space_A" ||
