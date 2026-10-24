@@ -667,7 +667,7 @@ async function importLegacySnapshot(){
       const key=String(rawArea??"").trim();
       return oldToNew.get(key)||findAreaItem(key)?.id||"";
     };
-    let courseWrites=0,bookingWrites=0,lockWrites=0,skippedBookings=0;
+    let courseWrites=0,bookingWrites=0,lockWrites=0,skippedBookings=0,importedInlinePhotos=0,skippedLegacyPhotos=0;
     const scheduleSnap=await sdk.getDocs(sdk.collection(db,"schedule"));
     const currentCourses=scheduleSnap.docs.map(d=>({id:d.id,...d.data()}));
     const courseOps=[];
@@ -742,7 +742,35 @@ async function importLegacySnapshot(){
       const lockIds=lane===undefined?[]:slots.map(slot=>slot.key+"_"+lane);
       const durationHours=(endDateTime.getTime()-startDateTime.getTime())/3600000;
       const endAreaName=config.items.find(i=>i.id===itemId)?.name||String(areaRaw||"舊系統區域");
-      const photos=Array.isArray(row.photos)?row.photos.map(p=>typeof p==="string"?p:(p?.url||p?.src||"")).filter(p=>/^https?:\/\//i.test(p)).slice(0,5):[];
+      const photoSources=[];
+      for(const candidate of [row.photos,row.photoUrls,row.images,row.checkoutPhotos,row.returnPhotos,row.attachments]){
+        if(Array.isArray(candidate))photoSources.push(...candidate);
+        else if(typeof candidate==="string"&&candidate)photoSources.push(candidate);
+      }
+      for(const candidate of [row.photo,row.photoUrl,row.checkoutPhoto,row.returnPhoto]){
+        if(candidate)photoSources.push(candidate);
+      }
+      const photos=[],inlinePhotoRecords=[];
+      for(const [photoIndex,entry] of photoSources.slice(0,5).entries()){
+        let source=typeof entry==="string"?entry:(entry?.dataUrl||entry?.dataURL||entry?.url||entry?.src||entry?.base64||"");
+        if(!source){skippedLegacyPhotos++;continue}
+        if(/^https?:\/\//i.test(source)){photos.push(source);continue}
+        if(/^data:image\//i.test(source)||/^[A-Za-z0-9+/]+=*$/.test(source)){
+          try{
+            let dataUrl=source.startsWith("data:image/")?source:"data:image/jpeg;base64,"+source;
+            if(!dataUrl.startsWith("data:image/jpeg;base64,")||dataUrl.length>=650000){
+              const response=await fetch(dataUrl);
+              const blob=await response.blob();
+              const file=new File([blob],String(entry?.name||("legacy-photo-"+(photoIndex+1)+".jpg")),{type:blob.type||"image/jpeg"});
+              dataUrl=await compressImage(file);
+            }
+            if(dataUrl.startsWith("data:image/jpeg;base64,")&&dataUrl.length<650000){
+              inlinePhotoRecords.push({name:String(entry?.name||("舊照片"+(photoIndex+1)+".jpg")).slice(0,100),dataUrl});
+            }else skippedLegacyPhotos++;
+          }catch(e){skippedLegacyPhotos++}
+        }else skippedLegacyPhotos++;
+      }
+      const photoRefs=inlinePhotoRecords.map(()=>sdk.doc(sdk.collection(db,"bookings",code,"photos")));
       const legacyRecord={
         name,className:String(row.className||row.class||"舊系統匯入（班級未提供）"),
         phone:String(row.phone||"原站未提供電話"),borrowType,type:"booking",itemId:itemId||"",
@@ -752,8 +780,8 @@ async function importLegacySnapshot(){
         startAt:startDateTime.getTime(),endAt:endDateTime.getTime(),
         purpose:String(row.purpose||"從舊系統資料匯入；原系統可能未提供電話／查詢碼。"),
         status,displayStatus:originalStatus,legacyImportConflict:conflicted,
-        importedOriginal:true,sourceLegacyKey:rowKey,lockIds,photoIds:[],
-        photos,photoPaths:Array.isArray(row.photoPaths)?row.photoPaths:[],
+        importedOriginal:true,sourceLegacyKey:rowKey,lockIds,
+        photoIds:photoRefs.map(ref=>ref.id),photos,photoPaths:[],
         createdAt:sdk.serverTimestamp(),checkedInAt:legacyCheckedIn?sdk.serverTimestamp():null,checkedOutAt:legacyCheckedOut?sdk.serverTimestamp():null
       };
       // Each active booking plus its time locks is committed as a single batch.
@@ -761,6 +789,9 @@ async function importLegacySnapshot(){
       const batch=sdk.writeBatch(db);
       const bookingRef=sdk.doc(db,"bookings",code);
       batch.set(bookingRef,legacyRecord);
+      inlinePhotoRecords.forEach((photo,i)=>batch.set(photoRefs[i],{
+        dataUrl:photo.dataUrl,name:photo.name,contentType:"image/jpeg",createdAt:sdk.serverTimestamp(),importedLegacyPhoto:true
+      }));
       if(lane!==undefined){
         slots.forEach(slot=>{
           const lockId=slot.key+"_"+lane;
@@ -773,11 +804,11 @@ async function importLegacySnapshot(){
       }
       await batch.commit();
       currentBookings.push({id:code,...legacyRecord});
-      bookingWrites++;
+      bookingWrites++;importedInlinePhotos+=inlinePhotoRecords.length;
     }
     await loadConfig();
     await adminSection("seed");
-    feedback("legacyImportMessage","舊資料匯入完成：空間 "+spaceOps.length+" 筆、課表 "+courseWrites+" 筆、借用紀錄 "+bookingWrites+" 筆、時段鎖 "+lockWrites+" 格。"+(skippedBookings?"有 "+skippedBookings+" 筆仍在使用但時段已衝突，已標記供管理員確認。":"")+"重複匯入會略過已匯入紀錄。");
+    feedback("legacyImportMessage","舊資料匯入完成：空間 "+spaceOps.length+" 筆、課表 "+courseWrites+" 筆、借用紀錄 "+bookingWrites+" 筆、時段鎖 "+lockWrites+" 格、內嵌照片 "+importedInlinePhotos+" 張。"+(skippedLegacyPhotos?"有 "+skippedLegacyPhotos+" 個照片項目無法匯入（格式不支援、網址不可存取或超過限制）。":"")+(skippedBookings?"有 "+skippedBookings+" 筆仍在使用但時段已衝突，已標記供管理員確認。":"")+"重複匯入會略過已匯入紀錄。");
     toast("舊系統資料匯入完成");
   }catch(e){
     feedback("legacyImportMessage","舊資料匯入失敗："+friendlyError(e),true);
