@@ -573,6 +573,184 @@ async function seedBaselineData(){
   }
 }
 
+function parseLegacyDateTime(raw,fallbackDate){
+  const value=String(raw??"").trim();
+  if(!value)return null;
+  if(typeof raw==="number"&&raw>100000000000){
+    const d=new Date(raw);return Number.isNaN(d.getTime())?null:d;
+  }
+  const dateMatch=value.match(/(\d{4}\s*[-/.年]\s*\d{1,2}\s*[-/.月]\s*\d{1,2}\s*日?)/);
+  if(dateMatch){
+    const date=importDate(dateMatch[1],fallbackDate);
+    const rest=value.slice(dateMatch.index+dateMatch[1].length).replace(/^[T\s,]+/,"");
+    const time=importTime(rest);
+    if(date&&time)return dateTime(date,time);
+  }
+  const time=importTime(value);
+  return time&&fallbackDate?dateTime(fallbackDate,time):null;
+}
+async function importLegacySnapshot(){
+  const button=$("#importLegacyBtn"),original=button?.textContent||"匯入舊系統資料";
+  if(button){button.disabled=true;button.textContent="正在解析與匯入…"}
+  feedback("legacyImportMessage","正在檢查舊資料格式…");
+  try{
+    let raw=$("#legacyJson")?.value?.trim()||"";
+    const file=$("#legacyJsonFile")?.files?.[0];
+    if(!raw&&file)raw=await file.text();
+    if(!raw)throw new Error("請選擇 JSON 檔案，或貼上舊系統資料。");
+    if(/<\s*!doctype html|google\.script\.run|userCodeAppPanel/i.test(raw.slice(0,10000))&&!raw.trim().startsWith("{")&&!raw.trim().startsWith("[")){
+      throw new Error("你選到的是舊網站「輸出程式碼 HTML」，裡面只有 getBoard() 呼叫方式，不含即時課表／借用資料。請從舊網站取得 getBoard() 回傳的 JSON（需含 spaces、courses、bookings），再匯入這裡。");
+    }
+    let parsed;
+    try{parsed=JSON.parse(raw)}catch(e){throw new Error("JSON 格式錯誤。請匯入舊系統 getBoard() 的資料 JSON，不是整份 HTML 原始碼。"+e.message)}
+    const root=parsed?.data?.spaces||parsed?.data?.courses?parsed.data:(parsed?.board?.spaces||parsed?.board?.courses?parsed.board:parsed);
+    const defaultDate=importDate(root.date||root.selectedDate||root.day||root.today,$("#legacyImportDate")?.value||today())||$("#legacyImportDate")?.value||today();
+    const spaces=Array.isArray(root.spaces)?root.spaces:[];
+    const courses=Array.isArray(root.courses)?root.courses:(Array.isArray(root.schedule)?root.schedule:[]);
+    const bookings=Array.isArray(root.bookings)?root.bookings:(Array.isArray(root.reservations)?root.reservations:[]);
+    if(!spaces.length&&!courses.length&&!bookings.length)throw new Error("JSON 內找不到 spaces、courses、bookings 或 reservations 陣列。");
+    await loadConfig();
+    const initialItems=config.items.slice(),oldToNew=new Map(),spaceOps=[];
+    for(const space of spaces){
+      const name=String(space.name||space.label||space.title||space.areaName||"").trim();
+      if(!name)continue;
+      const oldId=String(space.id??space.areaCode??space.code??name).trim();
+      const code=String(space.areaCode??space.code??oldId).trim();
+      const found=initialItems.find(i=>i.name===name||String(i.areaCode||"").toUpperCase()===areaKey(code)||String(i.id)===oldId);
+      const safeOldId=oldId.replace(/[^A-Za-z0-9_-]/g,"_").slice(0,90)||stableHash(name);
+      const itemId=found?.id||("legacy_space_"+safeOldId);
+      oldToNew.set(oldId,itemId);
+      spaceOps.push({id:itemId,data:{
+        name,category:space.category||"booking",areaCode:space.areaCode||code||areaKey(name),
+        description:space.description||"從舊系統資料匯入",available:found?.available===false?false:space.available!==false,
+        legacySourceId:oldId,legacyImportKey:"space_"+stableHash(oldId+"|"+name),updatedAt:sdk.serverTimestamp()
+      }});
+    }
+    for(let offset=0;offset<spaceOps.length;offset+=400){
+      const batch=sdk.writeBatch(db);
+      spaceOps.slice(offset,offset+400).forEach(op=>batch.set(sdk.doc(db,"items",op.id),op.data,{merge:true}));
+      await batch.commit();
+    }
+    if(spaceOps.length)await loadConfig();
+    const mapLegacyArea=rawArea=>{
+      const key=String(rawArea??"").trim();
+      return oldToNew.get(key)||findAreaItem(key)?.id||"";
+    };
+    let courseWrites=0,bookingWrites=0,lockWrites=0,skippedBookings=0;
+    const scheduleSnap=await sdk.getDocs(sdk.collection(db,"schedule"));
+    const currentCourses=scheduleSnap.docs.map(d=>({id:d.id,...d.data()}));
+    const courseOps=[];
+    for(const row of courses){
+      const date=importDate(row.date||row.courseDate||row.classDate,defaultDate);
+      const start=importTime(row.start||row.startTime||row.begin);
+      const end=importTime(row.end||row.endTime||row.finish);
+      const title=String(row.title||row.label||row.courseName||row.course||row.subject||"課表占用").trim();
+      const areaRaw=row.areaCode??row.area??row.space??row.room??row.itemId??"";
+      const itemId=mapLegacyArea(areaRaw);
+      if(!date||!start||!end||start>=end)throw new Error("課表「"+title+"」日期或時間格式不正確；日期："+String(row.date||defaultDate)+"，時間："+String(row.start||row.startTime)+"–"+String(row.end||row.endTime));
+      if(areaRaw&&!itemId)throw new Error("課表「"+title+"」使用未知區域："+String(areaRaw)+"。請確認 spaces 裡有相同區域 ID／名稱。");
+      const areaItem=config.items.find(i=>i.id===itemId);
+      const key="legacy_course_"+stableHash([date,itemId,start,end,title].join("|"));
+      const same=currentCourses.find(c=>c.id===key||(c.date===date&&c.start===start&&c.end===end&&(c.itemId||"")===(itemId||"")&&(c.title||c.label||"")===title));
+      courseOps.push({id:same?.id||key,data:{
+        date,start,end,title,itemId:itemId||"",areaCode:areaItem?.areaCode||(areaItem?areaKey(areaItem.name):String(areaRaw||"")),
+        type:"course",source:"舊系統 JSON 匯入",sourceLegacyKey:key,updatedAt:sdk.serverTimestamp()
+      }});
+    }
+    for(let offset=0;offset<courseOps.length;offset+=400){
+      const batch=sdk.writeBatch(db);
+      courseOps.slice(offset,offset+400).forEach(op=>batch.set(sdk.doc(db,"schedule",op.id),op.data,{merge:true}));
+      await batch.commit();courseWrites+=courseOps.slice(offset,offset+400).length;
+    }
+
+    const bookingsSnap=await sdk.getDocs(sdk.collection(db,"bookings"));
+    const currentBookings=bookingsSnap.docs.map(d=>({id:d.id,...d.data()}));
+    const locksSnap=await sdk.getDocs(sdk.collection(db,"reservationLocks"));
+    const usedLocks=new Set(locksSnap.docs.map(d=>d.id));
+    for(let index=0;index<bookings.length;index++){
+      const row=bookings[index]||{};
+      const areaRaw=row.areaCode??row.area??row.space??row.room??row.itemId??"";
+      const itemId=mapLegacyArea(areaRaw);
+      const rawStart=row.start??row.startTime??row.timeStart;
+      const rawEnd=row.end??row.endTime??row.timeEnd;
+      const hintedDate=importDate(row.date||row.bookingDate||row.dateString,defaultDate)||defaultDate;
+      const startDateTime=parseLegacyDateTime(rawStart,hintedDate);
+      let endDateTime=parseLegacyDateTime(rawEnd,importDate(row.endDate,localDate(startDateTime||new Date()))||localDate(startDateTime||new Date()));
+      if(!startDateTime||!endDateTime)throw new Error("第 "+(index+1)+" 筆舊借用資料日期／時間無法辨識。請確認 start/end 欄位。");
+      if(endDateTime.getTime()<=startDateTime.getTime()&&importTime(rawEnd)){
+        endDateTime=new Date(endDateTime.getTime()+24*60*60*1000);
+      }
+      if(endDateTime.getTime()<=startDateTime.getTime())throw new Error("第 "+(index+1)+" 筆舊借用的結束時間早於開始時間。");
+      const name=String(row.name||row.owner||row.student||"舊系統借用者").trim();
+      const borrowType=String(row.borrowType||row.borrow_type||"單人借用");
+      const originalStatus=String(row.status||"預約中").trim();
+      const rowKey="legacy_booking_"+stableHash([localDate(startDateTime),itemId||areaRaw,fmt(startDateTime),localDate(endDateTime),fmt(endDateTime),name,borrowType].join("|"));
+      if(currentBookings.some(b=>b.sourceLegacyKey===rowKey)){continue}
+      const lowStatus=originalStatus.toLowerCase();
+      const cancelled=/取消|拒絕|未核准|cancel|reject/.test(lowStatus);
+      const completed=/完成|已簽退|已結束|finished|complete|closed/.test(lowStatus);
+      const isPast=endDateTime.getTime()<=Date.now();
+      const status=cancelled?"cancelled":(completed||isPast)?"finished":"approved";
+      let slots=[];
+      if(status==="approved"&&itemId){
+        const half=30*60*1000;
+        let cursor=Math.floor(startDateTime.getTime()/half)*half;
+        if(cursor<Date.now())cursor=Math.floor(Date.now()/half)*half;
+        const finish=Math.ceil(endDateTime.getTime()/half)*half;
+        for(;cursor<finish;cursor+=half){
+          const d=new Date(cursor),date=localDate(d),time=fmt(d);
+          slots.push({date,time,key:date+"_"+itemId+"_"+time.replace(":","")});
+        }
+      }
+      const lane=slots.length?[0,1].find(l=>slots.every(slot=>!usedLocks.has(slot.key+"_"+l))):undefined;
+      const conflicted=slots.length>0&&lane===undefined;
+      if(conflicted)skippedBookings++;
+      const code=randomCode();
+      const lockIds=lane===undefined?[]:slots.map(slot=>slot.key+"_"+lane);
+      const durationHours=(endDateTime.getTime()-startDateTime.getTime())/3600000;
+      const endAreaName=config.items.find(i=>i.id===itemId)?.name||String(areaRaw||"舊系統區域");
+      const photos=Array.isArray(row.photos)?row.photos.filter(p=>typeof p==="string").slice(0,5):[];
+      const legacyRecord={
+        name,className:String(row.className||row.class||"舊系統匯入（班級未提供）"),
+        phone:String(row.phone||"原站未提供電話"),borrowType,type:"booking",itemId:itemId||"",
+        item:endAreaName,date:localDate(startDateTime),start:fmt(startDateTime),
+        hours:Math.max(1,Math.min(1000,Math.round(durationHours))),
+        endDate:localDate(endDateTime),endTime:fmt(endDateTime),
+        startAt:startDateTime.getTime(),endAt:endDateTime.getTime(),
+        purpose:String(row.purpose||"從舊系統資料匯入；原系統可能未提供電話／查詢碼。"),
+        status,displayStatus:originalStatus,legacyImportConflict:conflicted,
+        importedOriginal:true,sourceLegacyKey:rowKey,lockIds,photoIds:[],
+        photos,photoPaths:Array.isArray(row.photoPaths)?row.photoPaths:[],
+        createdAt:sdk.serverTimestamp(),checkedInAt:null,checkedOutAt:null
+      };
+      // Each active booking plus its time locks is committed as a single batch.
+      // If a conflicting slot exists, preserve the booking but mark it for admin review.
+      const batch=sdk.writeBatch(db);
+      const bookingRef=sdk.doc(db,"bookings",code);
+      batch.set(bookingRef,legacyRecord);
+      if(lane!==undefined){
+        slots.forEach(slot=>{
+          const lockId=slot.key+"_"+lane;
+          batch.set(sdk.doc(db,"reservationLocks",lockId),{
+            bookingId:code,lockId,itemId,date:slot.date,time:slot.time,lane,status:"active",
+            createdAt:sdk.serverTimestamp(),sourceLegacyKey:rowKey
+          });
+          usedLocks.add(lockId);lockWrites++;
+        });
+      }
+      await batch.commit();
+      currentBookings.push({id:code,...legacyRecord});
+      bookingWrites++;
+    }
+    await loadConfig();
+    await adminSection("seed");
+    feedback("legacyImportMessage","舊資料匯入完成：空間 "+spaceOps.length+" 筆、課表 "+courseWrites+" 筆、借用紀錄 "+bookingWrites+" 筆、時段鎖 "+lockWrites+" 格。"+(skippedBookings?"有 "+skippedBookings+" 筆仍在使用但時段已衝突，已標記供管理員確認。":"")+"重複匯入會略過已匯入紀錄。");
+    toast("舊系統資料匯入完成");
+  }catch(e){
+    feedback("legacyImportMessage","舊資料匯入失敗："+friendlyError(e),true);
+  }finally{if(button){button.disabled=false;button.textContent=original}}
+}
+
 async function adminSection(which){
   const c=$("#adminContent");
   if(which==="admins"){
