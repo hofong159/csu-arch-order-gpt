@@ -1252,9 +1252,9 @@ function bindShell(){
 async function boot(){
   try{
     const [appSdk,authSdk,firestoreSdk,configModule]=await Promise.all([
-      import("https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js"),
-      import("https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js"),
-      import("https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js"),
+      import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"),
+      import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js"),
+      import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"),
       import("./firebase-config.js")
     ]);
     sdk=Object.assign({},appSdk,authSdk,firestoreSdk);firebaseConfig=configModule.firebaseConfig;
