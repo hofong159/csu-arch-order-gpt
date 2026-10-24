@@ -434,6 +434,11 @@ async function loadMine(){
       }));
       photoRows=photoResults.filter(Boolean);
     }
+    const legacyPhotoRows=(Array.isArray(data.photos)?data.photos:[]).map((entry,i)=>{
+      const src=typeof entry==="string"?entry:(entry?.dataUrl||entry?.url||entry?.src||"");
+      return src?{id:"legacy-"+i,name:entry?.name||("舊照片"+(i+1)),dataUrl:src,legacy:true}:null;
+    }).filter(Boolean);
+    photoRows=[...photoRows,...legacyPhotoRows].slice(0,5);
     $("#myRecords").innerHTML=recordCard(data,code,photoRows);feedback("lookupMessage","查詢成功。");
     if($("#checkinBtn"))$("#checkinBtn").onclick=async()=>{try{
       await sdk.updateDoc(sdk.doc(db,"bookings",code),{checkedInAt:sdk.serverTimestamp()});toast("簽到成功");await loadMine();
