@@ -812,7 +812,7 @@ async function importLegacySnapshot(){
     feedback("legacyImportMessage","舊資料匯入完成：空間 "+spaceOps.length+" 筆、課表 "+courseWrites+" 筆、借用紀錄 "+bookingWrites+" 筆、時段鎖 "+lockWrites+" 格、內嵌照片 "+importedInlinePhotos+" 張。"+(skippedLegacyPhotos?"有 "+skippedLegacyPhotos+" 個照片項目無法匯入（格式不支援、網址不可存取或超過限制）。":"")+(skippedBookings?"有 "+skippedBookings+" 筆仍在使用但時段已衝突，已標記供管理員確認。":"")+"重複匯入會略過已匯入紀錄。");
     toast("舊系統資料匯入完成");
   }catch(e){
-    feedback("legacyImportMessage","舊資料匯入失敗："+friendlyError(e),true);
+    feedback("legacyImportMessage","舊資料匯入失敗："+friendlyError(e)+"。匯入途中可能已有部分資料成功寫入；修正來源後可安全重試，已匯入資料會略過重複項目。",true);
   }finally{if(button){button.disabled=false;button.textContent=original}}
 }
 
@@ -985,10 +985,16 @@ async function adminSection(which){
         const snap=await sdk.getDoc(sdk.doc(db,"bookings",b.dataset.openlegacy));
         if(!snap.exists())throw new Error("找不到這筆舊申請。");
         const photos=Array.isArray(snap.data().photos)?snap.data().photos:[];
-        const src=photos[Number(b.dataset.legacyidx)];
-        if(typeof src!=="string"||!src)throw new Error("舊照片欄位不是有效的圖片網址。");
-        const safe=esc(src);
-        w.document.open();w.document.write('<!doctype html><meta charset="utf-8"><title>舊簽退照片</title><style>body{margin:0;background:#111;display:grid;place-items:center;min-height:100vh}img{max-width:100%;max-height:100vh;object-fit:contain}</style><img alt="舊簽退照片" src="'+safe+'">');w.document.close();
+        const entry=photos[Number(b.dataset.legacyidx)];
+        const src=typeof entry==="string"?entry:(entry?.dataUrl||entry?.url||entry?.src||"");
+        if(typeof src!=="string"||!src)throw new Error("舊照片欄位不是有效的圖片網址或 data URL。");
+        w.document.open();
+        w.document.write('<!doctype html><meta charset="utf-8"><title>舊簽退照片</title><style>body{margin:0;padding:12px;background:#111;color:#fff;display:grid;place-items:center;min-height:100vh}img{max-width:100%;max-height:90vh;object-fit:contain}a{color:#9dd0ff}</style><img id="legacyPhoto" alt="舊簽退照片"><p id="legacyPhotoFallback" hidden>瀏覽器無法直接顯示這個舊連結，<a id="legacyPhotoLink" target="_blank" rel="noopener">點此開啟原始照片</a></p>');
+        w.document.close();
+        const photoElement=w.document.getElementById("legacyPhoto"),fallbackElement=w.document.getElementById("legacyPhotoFallback"),linkElement=w.document.getElementById("legacyPhotoLink");
+        linkElement.href=src;
+        photoElement.onerror=()=>{photoElement.hidden=true;fallbackElement.hidden=false};
+        photoElement.src=src;
       }catch(e){w.close();toast("無法開啟舊照片："+friendlyError(e))}
     });
   }
