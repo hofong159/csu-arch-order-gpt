@@ -116,7 +116,7 @@ jobs:
                 courseBoard: typeof loadPublicCourseBoard,
                 legacyExportSnippet: typeof LEGACY_EXPORT_SNIPPET === "string" && LEGACY_EXPORT_SNIPPET.includes(".getBoard(day)"),
                 legacyExporterKeepsDate: LEGACY_EXPORT_SNIPPET.includes('item.date || "", item.endDate || ""'),
-                csvRows: parseCsvText('日期,區域,開始時間,結束時間,課程名稱\\n2026-10-24,A,13:00,13:45,基本設計').length,
+                csvRows: parseCsvText('日期,區域,開始時間,結束時間,課程名稱\n2026-10-24,A,13:00,13:45,基本設計').length,
                 mappedCourseCount: mapped.length,
                 mappedItemId: mapped[0]?.itemId || "",
                 nestedCourseCount: wrappedCourse.length,
