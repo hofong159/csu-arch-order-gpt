@@ -58,7 +58,7 @@ jobs:
             console.log("AFTER TAB CLICK:", workshopHeading);
             if (!workshopHeading.includes("正修微工坊")) throw new Error("TAB_CLICK_FAILED: " + workshopHeading);
             const appSource = await page.evaluate(async () => await (await fetch(document.querySelector("script[src*='app.js']").src)).text());
-            if (!appSource.includes('p.onclick=async(event)=>') || !appSource.includes('quickSeedBtn') || !appSource.includes('items') || !appSource.includes('schedule') || !appSource.includes('bookings')) {
+            if (!appSource.includes('p.onclick=async(event)=>') || !appSource.includes('quickSeedBtn') || !appSource.includes('if(quick)await seedBaselineData()') || !appSource.includes('items') || !appSource.includes('schedule') || !appSource.includes('bookings')) {
               throw new Error("ADMIN_DELEGATED_NAV_OR_IMPORT_ACTION_MISSING");
             }
             console.log("ADMIN NAV HANDLER:", appSource.includes('p.onclick=async(event)=>'));
@@ -76,7 +76,7 @@ jobs:
             if (featureFns.legacyImporter !== "function" || featureFns.scheduleParser !== "function" ||
                 featureFns.photoCompressor !== "function" || featureFns.photoCleaner !== "function" ||
                 featureFns.csvRows !== 2 || featureFns.pmTime !== "13:30" || featureFns.parsedDate !== "2026-10-24" ||
-                !appSource.includes('$("[data-openphoto]").forEach') || !appSource.includes('$("[data-openlegacy]").forEach')) {
+                !appSource.includes('$$("[data-openphoto]").forEach') || !appSource.includes('$$("[data-openlegacy]").forEach')) {
               throw new Error("TIMETABLE_PHOTO_OR_LEGACY_IMPORT_FEATURE_CHECK_FAILED");
             }
             await page.getByRole("button", { name: "管理員後台" }).click();
