@@ -63,6 +63,22 @@ jobs:
             }
             console.log("ADMIN NAV HANDLER:", appSource.includes('p.onclick=async(event)=>'));
             console.log("IMPORT ACTION:", appSource.includes('quickSeedBtn'));
+            const featureFns = await page.evaluate(() => ({
+              legacyImporter: typeof importLegacySnapshot,
+              scheduleParser: typeof scheduleRowsFromText,
+              photoCompressor: typeof compressImage,
+              photoCleaner: typeof cleanupExpiredPhotos,
+              csvRows: parseCsvText('日期,區域,開始時間,結束時間,課程名稱\\n2026-10-24,A,13:00,13:45,基本設計').length,
+              pmTime: importTime('下午1:30'),
+              parsedDate: importDate('2026/10/24','')
+            }));
+            console.log("FEATURE FUNCTIONS:", JSON.stringify(featureFns));
+            if (featureFns.legacyImporter !== "function" || featureFns.scheduleParser !== "function" ||
+                featureFns.photoCompressor !== "function" || featureFns.photoCleaner !== "function" ||
+                featureFns.csvRows !== 2 || featureFns.pmTime !== "13:30" || featureFns.parsedDate !== "2026-10-24" ||
+                !appSource.includes('$("[data-openphoto]").forEach') || !appSource.includes('$("[data-openlegacy]").forEach')) {
+              throw new Error("TIMETABLE_PHOTO_OR_LEGACY_IMPORT_FEATURE_CHECK_FAILED");
+            }
             await page.getByRole("button", { name: "管理員後台" }).click();
             const modalVisible = await page.locator("#adminModal").isVisible();
             console.log("ADMIN MODAL VISIBLE:", modalVisible);
