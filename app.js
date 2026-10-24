@@ -236,11 +236,19 @@ function parseCsvText(text){
   return rows;
 }
 function importDate(raw,fallback){
-  if(raw==null||String(raw).trim()==="")return fallback;
+  if(raw==null||String(raw).trim()==="")return fallback||"";
+  if(typeof raw==="number"){
+    if(raw>100000000000){const d=new Date(raw);return Number.isNaN(d.getTime())?"":localDate(d)}
+    if(raw>=20000&&raw<=90000){const d=new Date(Date.UTC(1899,11,30)+raw*86400000);return d.toISOString().slice(0,10)}
+  }
   const v=String(raw).trim();
-  let m=v.match(/^(\d{4})\s*[-/.年]\s*(\d{1,2})\s*[-/.月]\s*(\d{1,2})\s*日?$/);
-  if(!m)m=v.match(/^(\d{2,3})\s*[/.-]\s*(\d{1,2})\s*[/.-]\s*(\d{1,2})$/);
-  if(!m&&/^\d{5}(?:\.\d+)?$/.test(v)){const d=new Date(Date.UTC(1899,11,30)+Number(v)*86400000);return d.toISOString().slice(0,10)}
+  const iso=v.match(/^(\d{4}-\d{2}-\d{2})(?:[T\s].*)?$/);
+  if(iso){
+    const parts=iso[1].split("-").map(Number),d=new Date(Date.UTC(parts[0],parts[1]-1,parts[2]));
+    if(d.getUTCFullYear()===parts[0]&&d.getUTCMonth()===parts[1]-1&&d.getUTCDate()===parts[2])return iso[1];
+  }
+  let m=v.match(/^(\d{2,4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?$/);
+  if(!m)m=v.match(/^(\d{2,4})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{1,2})$/);
   if(!m)return "";
   let y=Number(m[1]);if(y<1911)y+=1911;
   const mo=Number(m[2]),day=Number(m[3]),d=new Date(Date.UTC(y,mo-1,day));
@@ -248,13 +256,23 @@ function importDate(raw,fallback){
   return y+"-"+String(mo).padStart(2,"0")+"-"+String(day).padStart(2,"0");
 }
 function importTime(raw){
-  if(raw==null)return "";
-  if(typeof raw==="number"&&raw>=0&&raw<1){const mins=Math.round(raw*1440)%1440;return String(Math.floor(mins/60)).padStart(2,"0")+":"+String(mins%60).padStart(2,"0")}
-  let v=String(raw).trim();
-  if(/^0?\.\d+$/.test(v)){const mins=Math.round(Number(v)*1440)%1440;return String(Math.floor(mins/60)).padStart(2,"0")+":"+String(mins%60).padStart(2,"0")}
-  const marker=(v.match(/上午|下午|晚上|中午|AM|PM/i)||[])[0];
-  v=v.replace(/上午|下午|晚上|中午|AM|PM/ig,"").trim();
-  const m=v.match(/^(\d{1,2})[:.](\d{2})(?::\d{2})?$/);if(!m)return "";
+  if(raw==null||String(raw).trim()==="")return "";
+  if(typeof raw==="number"&&raw>=0&&raw<=1){
+    const mins=Math.round(raw*1440)%1440;
+    return String(Math.floor(mins/60)).padStart(2,"0")+":"+String(mins%60).padStart(2,"0");
+  }
+  let value=String(raw).trim();
+  if(/^0?\.\d+$/.test(value)){
+    const mins=Math.round(Number(value)*1440)%1440;
+    return String(Math.floor(mins/60)).padStart(2,"0")+":"+String(mins%60).padStart(2,"0");
+  }
+  if(/^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}[T\s]/.test(value)){
+    const d=new Date(value);if(!Number.isNaN(d.getTime()))return fmt(d);
+  }
+  const marker=(value.match(/上午|下午|晚上|中午|AM|PM/i)||[])[0];
+  value=value.replace(/上午|下午|晚上|中午|AM|PM/ig,"").trim();
+  const m=value.match(/^(\d{1,2})[:.](\d{2})(?::(\d{2})(?:\.\d+)?)?$/);
+  if(!m)return "";
   let h=Number(m[1]),min=Number(m[2]);if(h>23||min>59)return "";
   if(marker&&/下午|晚上|中午|PM/i.test(marker)&&h<12)h+=12;
   if(marker&&/上午|AM/i.test(marker)&&h===12)h=0;
