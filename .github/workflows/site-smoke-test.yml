@@ -78,6 +78,18 @@ jobs:
                 config.items = [{id:"space_A",name:"A區",areaCode:"A",category:"booking"}];
                 mapped = scheduleRowsFromText('日期,區域,開始時間,結束時間,課程名稱\n2026-10-24,A,13:00,13:45,基本設計','2026-10-24');
               } finally { config.items = originalItems; }
+              const wrapped = {
+                meta: { date: "2026-10-24" },
+                data: { spaces: [{ id: "A", name: "A區", areaCode: "A" }] },
+                result: { courses: [{ date: "115/10/24", area: "A", start: "下午1:00", end: "下午1:45", label: "巢狀舊課表" }] }
+              };
+              const wrappedCourse = scheduleRowsFromText(JSON.stringify(wrapped), "2026-10-24");
+              const previewHtml = recordCard({
+                item: "A區", name: "測試", className: "建築四甲", date: "2026-10-24",
+                start: "13:00", endTime: "16:00", hours: 3, status: "approved",
+                checkedInAt: { toDate: () => new Date() }, checkedOutAt: { toDate: () => new Date() },
+                photoIds: ["photo1"]
+              }, "a".repeat(32), [{ id: "photo1", name: "smoke.jpg", dataUrl: "data:image/jpeg;base64,AAAA" }]);
               const canvas = document.createElement("canvas");
               canvas.width = 24; canvas.height = 24;
               canvas.getContext("2d").fillRect(0,0,24,24);
@@ -86,15 +98,23 @@ jobs:
               return {
                 legacyImporter: typeof importLegacySnapshot,
                 scheduleParser: typeof scheduleRowsFromText,
+                nestedLegacyArray: legacyArray(wrapped, ["spaces"]).length === 1 && legacyArray(wrapped, ["courses"]).length === 1,
                 photoCompressor: typeof compressImage,
                 photoCleaner: typeof cleanupExpiredPhotos,
                 courseBoard: typeof loadPublicCourseBoard,
                 legacyExportSnippet: typeof LEGACY_EXPORT_SNIPPET === "string" && LEGACY_EXPORT_SNIPPET.includes(".getBoard(day)"),
-                csvRows: parseCsvText('日期,區域,開始時間,結束時間,課程名稱\n2026-10-24,A,13:00,13:45,基本設計').length,
+                legacyExporterKeepsDate: LEGACY_EXPORT_SNIPPET.includes('item.date || "", item.endDate || ""'),
+                csvRows: parseCsvText('日期,區域,開始時間,結束時間,課程名稱\\n2026-10-24,A,13:00,13:45,基本設計').length,
                 mappedCourseCount: mapped.length,
                 mappedItemId: mapped[0]?.itemId || "",
+                nestedCourseCount: wrappedCourse.length,
+                nestedCourseDate: wrappedCourse[0]?.date || "",
+                nestedCourseTime: wrappedCourse[0]?.start || "",
+                nestedCourseItem: wrappedCourse[0]?.itemId || "",
+                photoPreview: previewHtml.includes("photo-grid") && previewHtml.includes("data:image/jpeg;base64,AAAA"),
                 pmTime: importTime('下午1:30'),
                 parsedDate: importDate('2026/10/24',''),
+                rocDate: importDate('115/10/24',''),
                 photoCompressed: photo.startsWith("data:image/jpeg;base64,") && photo.length < 650000,
                 legacyDateParsed: !!parseLegacyDateTime("2026-10-23T23:30:00","2026-10-24")
               };
@@ -104,7 +124,11 @@ jobs:
                 featureFns.photoCompressor !== "function" || featureFns.photoCleaner !== "function" ||
                 featureFns.courseBoard !== "function" || !featureFns.legacyExportSnippet || featureFns.csvRows !== 2 ||
                 featureFns.mappedCourseCount !== 1 || featureFns.mappedItemId !== "space_A" ||
-                featureFns.pmTime !== "13:30" || featureFns.parsedDate !== "2026-10-24" ||
+                featureFns.nestedLegacyArray !== true || featureFns.nestedCourseCount !== 1 ||
+                featureFns.nestedCourseDate !== "2026-10-24" || featureFns.nestedCourseTime !== "13:00" ||
+                featureFns.nestedCourseItem !== "space_A" || featureFns.photoPreview !== true ||
+                featureFns.legacyExporterKeepsDate !== true || featureFns.pmTime !== "13:30" ||
+                featureFns.parsedDate !== "2026-10-24" || featureFns.rocDate !== "2026-10-24" ||
                 !featureFns.photoCompressed || !featureFns.legacyDateParsed ||
                 !appSource.includes('$$("[data-openphoto]").forEach') ||
                 !appSource.includes('$$("[data-openlegacy]").forEach') ||
