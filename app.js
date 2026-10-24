@@ -506,9 +506,20 @@ async function checkout(code){
   };
   picker.click();
 }
+function withFirestoreTimeout(promise,label,timeoutMs=12000){
+  let timer;
+  const timeout=new Promise((_,reject)=>{
+    timer=setTimeout(()=>{
+      const error=new Error(label+"逾時：Firestore 在 "+Math.round(timeoutMs/1000)+" 秒內沒有回應。請檢查網路、Firebase 專案狀態及 Firestore Rules；可重試，不會因逾時自動刪除資料。");
+      error.code="csu/firestore-timeout";
+      reject(error);
+    },timeoutMs);
+  });
+  return Promise.race([Promise.resolve(promise),timeout]).finally(()=>clearTimeout(timer));
+}
 function friendlyError(e){
   const message=e?.message||String(e||"操作失敗。");
-  if(e?.code==="permission-denied")return "Firebase 權限規則尚未更新。請執行新版免計費部署腳本，或確認 Firestore Rules 已發布。";
+  if(e?.code==="permission-denied")return "Firestore 權限不足：請到 Firebase Console → Firestore Database → Rules，發布 GitHub 專案內最新的 firestore.rules。GitHub Pages 部署不會自動發布 Firestore Rules。";
   if(e?.code==="unavailable")return "Firebase 目前無法連線，請檢查網路後重試。";
   return message;
 }
@@ -1062,7 +1073,8 @@ async function adminSection(which){
     $$("[data-delitem]").forEach(b=>b.onclick=async()=>{if(!confirm("確定刪除此項目？"))return;try{await sdk.deleteDoc(sdk.doc(db,"items",b.dataset.delitem));await loadConfig();await adminSection("items");render();toast("項目已刪除")}catch(e){toast("刪除失敗："+friendlyError(e))}});
   }
   if(which==="schedule"){
-    const snap=await sdk.getDocs(sdk.collection(db,"schedule"));
+    c.innerHTML='<div class="notice" role="status">正在讀取課表資料…（若 12 秒內無回應，會顯示原因）</div>';
+    const snap=await withFirestoreTimeout(sdk.getDocs(sdk.collection(db,"schedule")),"課表讀取",12000);
     const rows=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>String(a.date||"").localeCompare(String(b.date||""))||String(a.start||"").localeCompare(String(b.start||"")));
     c.innerHTML='<h3>課表管理／匯入舊課表</h3>'+
       '<p class="muted">支援 CSV 和 JSON。CSV 可用欄位標題（日期、區域、開始時間、結束時間、課程名稱），也支援舊格式；區域可填 A、A區、空間代碼或項目 ID。無日期的檔案會使用下方預設日期。</p>'+
@@ -1151,7 +1163,8 @@ async function adminSection(which){
     });
   }
   if(which==="bookings"){
-    const snap=await sdk.getDocs(sdk.collection(db,"bookings")),rows=snap.docs.map(d=>({id:d.id,...d.data()}));
+    c.innerHTML='<div class="notice" role="status">正在讀取申請與照片資料…（若 12 秒內無回應，會顯示原因）</div>';
+    const snap=await withFirestoreTimeout(sdk.getDocs(sdk.collection(db,"bookings")),"申請／照片資料讀取",12000),rows=snap.docs.map(d=>({id:d.id,...d.data()}));
     const createdMillis=value=>value?.toDate?value.toDate().getTime():(value?new Date(value).getTime():0);
     rows.sort((a,b)=>createdMillis(b.createdAt)-createdMillis(a.createdAt));
     c.innerHTML='<h3>申請／照片管理</h3><div class="table-wrap"><table><thead><tr><th>申請人／手機</th><th>項目／時間</th><th>狀態</th><th>簽到／照片</th><th>審核</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+esc(r.name)+'<br>'+esc(r.className)+'<br>'+esc(r.phone)+'</td><td>'+esc(r.item)+'<br>'+esc(r.date)+' '+esc(r.start)+'–'+esc(r.endDate&&r.endDate!==r.date?r.endDate+' ':'')+esc(r.endTime)+'<br><small>'+esc(r.purpose||"")+'</small></td><td>'+esc(r.displayStatus||statusLabel(r.status))+(r.legacyImportConflict?'<br><b style="color:#b45309">⚠ 匯入時段衝突，未佔用時段</b>':"")+'</td><td>'+(r.checkedInAt?"已簽到":"未簽到")+'／'+(r.checkedOutAt?"已簽退":"未簽退")+'<br>'+((r.photoIds||[]).map((p,i)=>'<button class="secondary" data-openphoto="'+esc(r.id)+'" data-photoid="'+esc(p)+'">照片'+(i+1)+'</button>').concat((Array.isArray(r.photos)?r.photos:[]).map((p,i)=>'<button class="secondary" data-openlegacy="'+esc(r.id)+'" data-legacyidx="'+i+'">舊照片'+(i+1)+'</button>')).join(" ")||"無照片")+'</td><td><select data-status="'+esc(r.id)+'">'+["pending","approved","rejected","cancelled","finished"].map(k=>'<option value="'+k+'" '+(r.status===k?"selected":"")+'>'+statusLabel(k)+'</option>').join("")+'</select><button class="secondary" data-savebooking="'+esc(r.id)+'">儲存</button></td></tr>').join("")+'</tbody></table></div>';
@@ -1159,7 +1172,7 @@ async function adminSection(which){
     $$("[data-openphoto]").forEach(b=>b.onclick=async()=>{
       const w=window.open("","_blank");if(!w)return toast("瀏覽器阻擋新視窗，請允許彈出視窗後重試");
       try{
-        const d=await sdk.getDoc(sdk.doc(db,"bookings",b.dataset.openphoto,"photos",b.dataset.photoid));
+        const d=await withFirestoreTimeout(sdk.getDoc(sdk.doc(db,"bookings",b.dataset.openphoto,"photos",b.dataset.photoid)),"簽退照片讀取",12000);
         if(!d.exists())throw new Error("照片已清除或超過保留期限。");
         w.document.open();
         w.document.write('<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>簽退照片</title><style>body{margin:0;background:#111;color:#fff;font:16px Arial,sans-serif;text-align:center}img{display:block;max-width:96vw;max-height:88vh;margin:12px auto;object-fit:contain}p{padding:0 12px}</style><p>簽退照片</p><img id="photoPreview" alt="簽退照片"><p id="photoError" hidden>圖片無法顯示，可能已損毀或已清理。</p></html>');
@@ -1172,7 +1185,7 @@ async function adminSection(which){
     $$("[data-openlegacy]").forEach(b=>b.onclick=async()=>{
       const w=window.open("","_blank");if(!w)return toast("瀏覽器阻擋新視窗，請允許彈出視窗後重試");
       try{
-        const snap=await sdk.getDoc(sdk.doc(db,"bookings",b.dataset.openlegacy));
+        const snap=await withFirestoreTimeout(sdk.getDoc(sdk.doc(db,"bookings",b.dataset.openlegacy)),"舊申請照片讀取",12000);
         if(!snap.exists())throw new Error("找不到這筆舊申請。");
         const photos=Array.isArray(snap.data().photos)?snap.data().photos:[];
         const entry=photos[Number(b.dataset.legacyidx)];
