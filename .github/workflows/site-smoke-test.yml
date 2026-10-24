@@ -1,14 +1,12 @@
 name: Verify live website interactions
 on:
-  workflow_run:
-    workflows: ["Deploy static site to GitHub Pages"]
-    types: [completed]
+  push:
+    branches: ["main"]
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   smoke-test:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -41,8 +39,17 @@ jobs:
           let done = false;
           try {
             const url = "https://hofong159.github.io/csu-arch-order-gpt/?smoke=" + Date.now();
-            const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
-            await page.waitForTimeout(1500);
+            let response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+            // GitHub Pages deploys asynchronously after a push. Wait for this fix's cache
+            // version so the test does not accidentally examine the previous deployed build.
+            let appAsset = "";
+            for (let attempt = 0; attempt < 12; attempt++) {
+              await page.waitForTimeout(2500);
+              appAsset = await page.locator("script[src*='app.js']").getAttribute("src").catch(() => "");
+              if (appAsset.includes("20261024-schedule-photo-fix3")) break;
+              response = await page.goto(url + "&retry=" + attempt, { waitUntil: "domcontentloaded", timeout: 60000 });
+            }
+            if (!appAsset.includes("20261024-schedule-photo-fix3")) throw new Error("LATEST_GITHUB_PAGES_ASSET_NOT_DEPLOYED: " + appAsset);
             console.log("URL:", page.url());
             console.log("HTTP:", response?.status());
             console.log("TITLE:", await page.title());
