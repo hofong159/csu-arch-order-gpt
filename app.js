@@ -603,7 +603,7 @@ async function importLegacySnapshot(){
     }
     let parsed;
     try{parsed=JSON.parse(raw)}catch(e){throw new Error("JSON 格式錯誤。請匯入舊系統 getBoard() 的資料 JSON，不是整份 HTML 原始碼。"+e.message)}
-    const root=parsed?.data?.spaces||parsed?.data?.courses?parsed.data:(parsed?.board?.spaces||parsed?.board?.courses?parsed.board:parsed);
+    const hasArrays=o=>o&&[o.spaces,o.courses,o.schedule,o.bookings,o.reservations].some(Array.isArray);const root=hasArrays(parsed?.data)?parsed.data:(hasArrays(parsed?.board)?parsed.board:(hasArrays(parsed)?parsed:parsed));
     const defaultDate=importDate(root.date||root.selectedDate||root.day||root.today,$("#legacyImportDate")?.value||today())||$("#legacyImportDate")?.value||today();
     const spaces=Array.isArray(root.spaces)?root.spaces:[];
     const courses=Array.isArray(root.courses)?root.courses:(Array.isArray(root.schedule)?root.schedule:[]);
@@ -619,9 +619,9 @@ async function importLegacySnapshot(){
       const found=initialItems.find(i=>i.name===name||String(i.areaCode||"").toUpperCase()===areaKey(code)||String(i.id)===oldId);
       const safeOldId=oldId.replace(/[^A-Za-z0-9_-]/g,"_").slice(0,90)||stableHash(name);
       const itemId=found?.id||("legacy_space_"+safeOldId);
-      oldToNew.set(oldId,itemId);
+      oldToNew.set(oldId,itemId);oldToNew.set(code,itemId);oldToNew.set(name,itemId);oldToNew.set(areaKey(name),itemId);
       spaceOps.push({id:itemId,data:{
-        name,category:space.category||"booking",areaCode:space.areaCode||code||areaKey(name),
+        name,category:space.category||"booking",areaCode:space.areaCode||space.code||areaKey(name)||oldId,
         description:space.description||"從舊系統資料匯入",available:found?.available===false?false:space.available!==false,
         legacySourceId:oldId,legacyImportKey:"space_"+stableHash(oldId+"|"+name),updatedAt:sdk.serverTimestamp()
       }});
@@ -684,8 +684,8 @@ async function importLegacySnapshot(){
       const name=String(row.name||row.owner||row.student||"舊系統借用者").trim();
       const borrowType=String(row.borrowType||row.borrow_type||"單人借用");
       const originalStatus=String(row.status||"預約中").trim();
-      const rowKey="legacy_booking_"+stableHash([localDate(startDateTime),itemId||areaRaw,fmt(startDateTime),localDate(endDateTime),fmt(endDateTime),name,borrowType].join("|"));
-      if(currentBookings.some(b=>b.sourceLegacyKey===rowKey)){continue}
+      const rowKey="legacy_booking_"+stableHash([row.id||row.key||"",localDate(startDateTime),itemId||areaRaw,fmt(startDateTime),localDate(endDateTime),fmt(endDateTime),name,borrowType,row.phone||row.className||""].join("|"));
+      if(currentBookings.some(b=>b.sourceLegacyKey===rowKey||(b.importedOriginal&&b.name===name&&b.itemId===itemId&&b.date===localDate(startDateTime)&&b.start===fmt(startDateTime)&&b.endDate===localDate(endDateTime)&&b.endTime===fmt(endDateTime)))){continue}
       const lowStatus=originalStatus.toLowerCase();
       const cancelled=/取消|拒絕|未核准|cancel|reject/.test(lowStatus);
       const completed=/完成|已簽退|已結束|finished|complete|closed/.test(lowStatus);
@@ -709,7 +709,7 @@ async function importLegacySnapshot(){
       const lockIds=lane===undefined?[]:slots.map(slot=>slot.key+"_"+lane);
       const durationHours=(endDateTime.getTime()-startDateTime.getTime())/3600000;
       const endAreaName=config.items.find(i=>i.id===itemId)?.name||String(areaRaw||"舊系統區域");
-      const photos=Array.isArray(row.photos)?row.photos.filter(p=>typeof p==="string").slice(0,5):[];
+      const photos=Array.isArray(row.photos)?row.photos.map(p=>typeof p==="string"?p:(p?.dataUrl||p?.url||p?.src||"")).filter(Boolean).slice(0,5):[];
       const legacyRecord={
         name,className:String(row.className||row.class||"舊系統匯入（班級未提供）"),
         phone:String(row.phone||"原站未提供電話"),borrowType,type:"booking",itemId:itemId||"",
