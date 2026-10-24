@@ -110,7 +110,7 @@ const LEGACY_EXPORT_SNIPPET = String.raw`(function () {
         });
         (Array.isArray(data.bookings) ? data.bookings : (Array.isArray(data.reservations) ? data.reservations : [])).forEach(function (row) {
           var item = Object.assign({}, row, {date: row.date || row.bookingDate || day});
-          var k = keyOf(item, [item.name || item.owner || "", item.area || item.space || "",
+          var k = keyOf(item, [item.date || "", item.endDate || "", item.name || item.owner || "", item.area || item.space || "",
             item.start || item.startTime || "", item.end || item.endTime || "",
             item.borrowType || "", item.phone || ""].join("|"));
           bookings.set(k, item);
