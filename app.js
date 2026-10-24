@@ -497,31 +497,38 @@ function friendlyError(e){
 async function cleanupExpiredPhotos(){
   if(!adminUser)return;
   try{
-    const cutoffMs=Date.now()-7*24*60*60*1000;
-    const cutoff=sdk.Timestamp.fromDate(new Date(cutoffMs));
+    const now=Date.now(),cutoffMs=now-7*24*60*60*1000;
     const snap=await sdk.getDocs(sdk.collection(db,"bookings"));
-    let cleaned=0,checked=0;
+    let deletedCount=0,checkedCount=0;
     for(const bookingDoc of snap.docs){
-      const data=bookingDoc.data();
-      const checkedOut=data.checkedOutAt;
+      const data=bookingDoc.data(),checkedOut=data.checkedOutAt;
       const checkedOutMs=checkedOut?.toDate?checkedOut.toDate().getTime():(checkedOut?new Date(checkedOut).getTime():0);
-      const oldByCheckout=checkedOutMs>0&&checkedOutMs<=cutoffMs;
-      const oldByLegacyDeadline=typeof data.photoDeleteAfter==="number"&&data.photoDeleteAfter<=Date.now();
-      const hasPhotoRefs=(Array.isArray(data.photoIds)&&data.photoIds.length>0)||(Array.isArray(data.photos)&&data.photos.length>0)||(Array.isArray(data.photoPaths)&&data.photoPaths.length>0);
-      if(!oldByCheckout&&!oldByLegacyDeadline)continue;
+      const deadline=data.photoDeleteAfter?.toDate?data.photoDeleteAfter.toDate().getTime():Number(data.photoDeleteAfter||0);
+      const expireAll=(checkedOutMs>0&&checkedOutMs<=cutoffMs)||(deadline>0&&deadline<=now);
+      const hasRefs=(Array.isArray(data.photoIds)&&data.photoIds.length>0)||(Array.isArray(data.photos)&&data.photos.length>0)||(Array.isArray(data.photoPaths)&&data.photoPaths.length>0);
+      if(!expireAll&&!hasRefs)continue;
       const photoSnap=await sdk.getDocs(sdk.collection(db,"bookings",bookingDoc.id,"photos"));
+      const expiredDocs=expireAll?photoSnap.docs:photoSnap.docs.filter(photoDoc=>{
+        const created=photoDoc.data().createdAt;
+        const ms=created?.toDate?created.toDate().getTime():(created?new Date(created).getTime():0);
+        return ms>0&&ms<=cutoffMs;
+      });
+      const expiredIds=new Set(expiredDocs.map(photoDoc=>photoDoc.id));
+      const remainingIds=expireAll?[]:(Array.isArray(data.photoIds)?data.photoIds.filter(id=>!expiredIds.has(id)):[]);
+      const needParentUpdate=expireAll||expiredIds.size>0||(Array.isArray(data.photoIds)&&remainingIds.length!==data.photoIds.length);
+      if(!expiredDocs.length&&!needParentUpdate)continue;
       const batch=sdk.writeBatch(db);
-      photoSnap.docs.forEach(photoDoc=>batch.delete(photoDoc.ref));
-      const patch={photoIds:[],photos:[],photoPaths:[]};
-      // Remove legacy Storage URLs/paths from the Firestore record. This free-plan build
-      // cannot delete old files in Firebase Storage, but it can stop displaying expired links.
-      if(data.photoDeleteAfter!==undefined)patch.photoDeleteAfter=null;
-      batch.update(bookingDoc.ref,patch);
+      expiredDocs.forEach(photoDoc=>batch.delete(photoDoc.ref));
+      if(needParentUpdate){
+        const patch={photoIds:remainingIds};
+        if(expireAll){patch.photos=[];patch.photoPaths=[];if(data.photoDeleteAfter!==undefined)patch.photoDeleteAfter=null;}
+        batch.update(bookingDoc.ref,patch);
+      }
       await batch.commit();
-      cleaned+=photoSnap.size+(Array.isArray(data.photoIds)?data.photoIds.length:0);
-      checked++;
+      deletedCount+=expiredDocs.length+(expireAll?(Array.isArray(data.photos)?data.photos.length:0)+(Array.isArray(data.photoPaths)?data.photoPaths.length:0):0);
+      checkedCount++;
     }
-    if(cleaned)toast("已清理 "+cleaned+" 個超過 7 天的照片紀錄（"+checked+" 筆申請）");
+    if(deletedCount)toast("已清理 "+deletedCount+" 個超過 7 天的照片紀錄（"+checkedCount+" 筆申請）");
   }catch(e){console.warn("Expired photo cleanup did not run",e);toast("照片期限清理失敗："+friendlyError(e))}
 }
 async function callAdminSignIn(email,password){
