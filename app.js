@@ -3,6 +3,7 @@
 const $ = s => document.querySelector(s);
 const $$ = (s, root=document) => [...root.querySelectorAll(s)];
 const INITIAL_ADMIN_EMAIL = "hofong159@gmail.com";
+const FIRESTORE_DATABASE_ID = "default"; // named database shown in Firebase Console
 let sdk = {}, app = null, auth = null, db = null, firebaseConfig = null;
 let config = {items:[], rules:{}, settings:{}}, currentView = "booking", adminUser = null;
 const labels = {booking:"空間預約", borrowing:"設備借還登記（雙向借用）", micro:"借用正修微工坊", output:"借用出圖室", records:"我的申請／簽到簽退"};
@@ -1252,115 +1253,92 @@ function bindShell(){
 }
 // Compat adapter：依照可正常運作的個人網站後台，統一改用 Firebase 10.12.2 compat API。
 // 保留目前預約系統使用的介面，避免重寫交易、借用、課表匯入及照片流程。
-function createCompatSdk(firebase){
+function createModularSdk(appSdk,authSdk,firestoreSdk){
   const restMeta=new WeakMap();
-  const wrapDoc=s=>({
-    id:s.id,
-    ref:s.ref,
-    exists:()=>s.exists,
-    data:()=>s.data(),
-    get:field=>s.get(field),
-    metadata:s.metadata
-  });
-  const wrapQuery=s=>({
-    docs:s.docs.map(wrapDoc),
-    empty:s.empty,
-    size:s.size,
-    metadata:s.metadata,
-    forEach:fn=>s.forEach(d=>fn(wrapDoc(d)))
-  });
-  const applyConstraints=(base,constraints)=>(constraints||[]).reduce((q,c)=>q.where(c.field,c.op,c.value),base);
-
-  // Firestore WebChannel reads are hanging in this deployment. After a short SDK attempt,
-  // use Firestore's HTTPS REST API for reads. Writes/transactions still use the official SDK.
-  function readTimeout(promise,ms){
-    let timer;
-    const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>{
-      const e=new Error("Firebase SDK 讀取在 "+ms+"ms 內沒有回應");e.code="csu/sdk-read-timeout";reject(e);
-    },ms)});
-    return Promise.race([Promise.resolve(promise),timeout]).finally(()=>clearTimeout(timer));
-  }
-  function decodeValue(v){
-    if(!v||typeof v!=="object")return v;
-    if("nullValue" in v)return null;
-    if("stringValue" in v)return v.stringValue;
-    if("booleanValue" in v)return v.booleanValue;
-    if("integerValue" in v)return Number(v.integerValue);
-    if("doubleValue" in v)return Number(v.doubleValue);
-    if("timestampValue" in v)return firebase.firestore.Timestamp.fromDate(new Date(v.timestampValue));
-    if("referenceValue" in v){
-      const marker="/documents/",i=v.referenceValue.indexOf(marker);
-      return i>=0&&db?db.doc(v.referenceValue.slice(i+marker.length)):v.referenceValue;
-    }
-    if("bytesValue" in v)return v.bytesValue;
-    if("geoPointValue" in v)return v.geoPointValue;
-    if("arrayValue" in v)return (v.arrayValue.values||[]).map(decodeValue);
-    if("mapValue" in v)return decodeFields(v.mapValue.fields||{});
-    return v;
-  }
-  function decodeFields(fields){
-    return Object.fromEntries(Object.entries(fields||{}).map(([k,v])=>[k,decodeValue(v)]));
-  }
-  function encodeValue(value){
+  const api=Object.assign({},appSdk,authSdk,firestoreSdk);
+  const wrapRestSnapshot=(docData,path)=>{
+    const ref=firestoreSdk.doc(db,path);
+    const exists=!!docData;
+    const data=exists?decodeFields(docData.fields||{}):undefined;
+    return {id:ref.id,ref,exists:()=>exists,data:()=>data,get:field=>data?.[field],metadata:{fromCache:false,hasPendingWrites:false}};
+  };
+  const encodeValue=value=>{
     if(value===null)return {nullValue:null};
     if(typeof value==="string")return {stringValue:value};
     if(typeof value==="boolean")return {booleanValue:value};
     if(typeof value==="number")return Number.isInteger(value)?{integerValue:String(value)}:{doubleValue:value};
     if(value instanceof Date)return {timestampValue:value.toISOString()};
     if(value&&typeof value.toDate==="function")return {timestampValue:value.toDate().toISOString()};
+    if(Array.isArray(value))return {arrayValue:{values:value.map(encodeValue)}};
+    if(value&&typeof value==="object")return {mapValue:{fields:Object.fromEntries(Object.entries(value).map(([k,v])=>[k,encodeValue(v)]))}};
     return {stringValue:String(value)};
+  };
+  const decodeValue=value=>{
+    if(!value||typeof value!=="object")return value;
+    if("nullValue" in value)return null;
+    if("stringValue" in value)return value.stringValue;
+    if("booleanValue" in value)return value.booleanValue;
+    if("integerValue" in value)return Number(value.integerValue);
+    if("doubleValue" in value)return Number(value.doubleValue);
+    if("timestampValue" in value)return firebaseSdkTimestamp(value.timestampValue);
+    if("referenceValue" in value){
+      const marker="/documents/",i=value.referenceValue.indexOf(marker);
+      return i>=0?firestoreSdk.doc(db,value.referenceValue.slice(i+marker.length)):value.referenceValue;
+    }
+    if("bytesValue" in value)return value.bytesValue;
+    if("arrayValue" in value)return (value.arrayValue.values||[]).map(decodeValue);
+    if("mapValue" in value)return decodeFields(value.mapValue.fields||{});
+    return value;
+  };
+  function firebaseSdkTimestamp(value){
+    return api.Timestamp?api.Timestamp.fromDate(new Date(value)):new Date(value);
   }
-  async function restRequest(url,init={},allow404=false){
+  function decodeFields(fields){
+    return Object.fromEntries(Object.entries(fields||{}).map(([k,v])=>[k,decodeValue(v)]));
+  }
+  function addApiKey(url){
+    const parsed=new URL(url);
+    if(firebaseConfig?.apiKey&&!parsed.searchParams.has("key"))parsed.searchParams.set("key",firebaseConfig.apiKey);
+    return parsed.toString();
+  }
+  async function restRequest(url,init={},allowDocNotFound=false){
     const controller=new AbortController();
-    const timer=setTimeout(()=>controller.abort(),7000);
+    const timer=setTimeout(()=>controller.abort(),8000);
     try{
       const headers={...(init.headers||{})};
-      const user=auth&&auth.currentUser;
-      if(user){
-        try{headers.Authorization="Bearer "+await user.getIdToken()}catch(e){
-          throw new Error("取得管理員登入權杖失敗："+(e?.message||e));
-        }
-      }
+      if(auth?.currentUser)headers.Authorization="Bearer "+await auth.currentUser.getIdToken();
       headers["Content-Type"]="application/json";
-      const response=await fetch(url,{...init,headers,signal:controller.signal});
+      const response=await fetch(addApiKey(url),{...init,headers,signal:controller.signal});
       const body=await response.text();
-      if(allow404&&response.status===404)return {__notFound:true};
       let parsed={};
       try{parsed=body?JSON.parse(body):{}}catch(_){}
       if(!response.ok){
         const apiError=parsed?.error||{};
         const detail=apiError.message||body||response.statusText;
-        const e=new Error("Firestore REST API HTTP "+response.status+"："+String(detail).slice(0,700));
-        e.code="firestore-rest-http-"+response.status;
-        throw e;
+        if(allowDocNotFound&&response.status===404&&/document not found/i.test(String(detail))&&!/database .* does not exist/i.test(String(detail)))return {__notFound:true};
+        const error=new Error("Firestore REST API HTTP "+response.status+"："+String(detail).slice(0,700));
+        error.code="firestore-rest-http-"+response.status;
+        throw error;
       }
       return parsed;
     }catch(e){
       if(e?.name==="AbortError"){
-        const err=new Error("Firestore REST API 連線在 7 秒內沒有回應。請確認此網路能連到 firestore.googleapis.com。");
-        err.code="firestore-rest-timeout";throw err;
+        const error=new Error("Firestore REST API 連線在 8 秒內沒有回應。請檢查網站到 firestore.googleapis.com 的連線。");
+        error.code="firestore-rest-timeout";
+        throw error;
       }
       throw e;
     }finally{clearTimeout(timer)}
   }
   function restRoot(){
     if(!firebaseConfig?.projectId||!firebaseConfig?.apiKey)throw new Error("Firebase 專案 ID 或 API Key 尚未載入。");
-    return "https://firestore.googleapis.com/v1/projects/"+encodeURIComponent(firebaseConfig.projectId)+"/databases/(default)/documents";
-  }
-  function restSnapshot(docData,path){
-    const ref=db.doc(path),exists=!!docData;
-    const data=exists?decodeFields(docData.fields||{}):undefined;
-    return {
-      id:ref.id,ref,exists:()=>exists,data:()=>data,
-      get:field=>data?.[field],
-      metadata:{fromCache:false,hasPendingWrites:false}
-    };
+    return "https://firestore.googleapis.com/v1/projects/"+encodeURIComponent(firebaseConfig.projectId)+"/databases/"+encodeURIComponent(FIRESTORE_DATABASE_ID)+"/documents";
   }
   async function restGetDoc(ref){
     const path=String(ref.path||"");
     const result=await restRequest(restRoot()+"/"+path.split("/").map(encodeURIComponent).join("/"),{},true);
-    if(result.__notFound)return restSnapshot(null,path);
-    return restSnapshot(result,path);
+    if(result.__notFound)return wrapRestSnapshot(null,path);
+    return wrapRestSnapshot(result,path);
   }
   async function restGetDocs(ref){
     const meta=restMeta.get(ref)||{path:String(ref.path||""),constraints:[]};
@@ -1371,111 +1349,89 @@ function createCompatSdk(firebase){
     if(constraints.length){
       const parts=path.split("/"),collectionId=parts.pop(),parentDocPath=parts.join("/");
       const endpoint=restRoot()+(parentDocPath?"/"+parentDocPath.split("/").map(encodeURIComponent).join("/"): "")+":runQuery";
-      const filters=constraints.map(c=>({
-        fieldFilter:{
-          field:{fieldPath:c.field},
-          op:({"==":"EQUAL","!=":"NOT_EQUAL","<":"LESS_THAN","<=":"LESS_THAN_OR_EQUAL",">":"GREATER_THAN",">=":"GREATER_THAN_OR_EQUAL"}[c.op]||"EQUAL"),
-          value:encodeValue(c.value)
-        }
-      }));
+      const filters=constraints.map(c=>({fieldFilter:{field:{fieldPath:c.field},op:({"==":"EQUAL","!=":"NOT_EQUAL","<":"LESS_THAN","<=":"LESS_THAN_OR_EQUAL",">":"GREATER_THAN",">=":"GREATER_THAN_OR_EQUAL"}[c.op]||"EQUAL"),value:encodeValue(c.value)}}));
       const where=filters.length===1?filters[0]:{compositeFilter:{op:"AND",filters}};
-      const result=await restRequest(endpoint,{method:"POST",body:JSON.stringify({
-        structuredQuery:{from:[{collectionId}],where,limit:1000}
-      })});
-      for(const row of Array.isArray(result)?result:[]){
+      const result=await restRequest(endpoint,{method:"POST",body:JSON.stringify({structuredQuery:{from:[{collectionId}],where,limit:1000}})});
+      for(const row of (Array.isArray(result)?result:[])){
         if(!row.document)continue;
         const marker="/documents/",idx=row.document.name.indexOf(marker);
-        if(idx<0)continue;
-        docs.push(restSnapshot(row.document,row.document.name.slice(idx+marker.length)));
+        if(idx>=0)docs.push(wrapRestSnapshot(row.document,row.document.name.slice(idx+marker.length)));
       }
     }else{
       let token="";
       do{
-        const url=restRoot()+"/"+path.split("/").map(encodeURIComponent).join("/")+
-          "?pageSize=1000"+(token?"&pageToken="+encodeURIComponent(token):"");
+        const url=restRoot()+"/"+path.split("/").map(encodeURIComponent).join("/")+"?pageSize=1000"+(token?"&pageToken="+encodeURIComponent(token):"");
         const result=await restRequest(url);
-        for(const d of result.documents||[]){
-          const marker="/documents/",idx=d.name.indexOf(marker);
-          if(idx<0)continue;
-          docs.push(restSnapshot(d,d.name.slice(idx+marker.length)));
+        for(const item of result.documents||[]){
+          const marker="/documents/",idx=item.name.indexOf(marker);
+          if(idx>=0)docs.push(wrapRestSnapshot(item,item.name.slice(idx+marker.length)));
         }
         token=result.nextPageToken||"";
       }while(token);
     }
     return {docs,empty:docs.length===0,size:docs.length,metadata:{fromCache:false,hasPendingWrites:false},forEach:fn=>docs.forEach(fn)};
   }
+  function readTimeout(promise,ms){
+    let timer;
+    const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>{
+      const error=new Error("Firebase SDK 讀取在 "+ms+"ms 內沒有回應。");error.code="csu/sdk-read-timeout";reject(error);
+    },ms)});
+    return Promise.race([Promise.resolve(promise),timeout]).finally(()=>clearTimeout(timer));
+  }
   async function resilientRead(kind,ref){
     try{
-      const sdkPromise=kind==="doc"?ref.get():ref.get();
-      const snapshot=await readTimeout(sdkPromise,2500);
-      return kind==="doc"?wrapDoc(snapshot):wrapQuery(snapshot);
+      return await readTimeout(kind==="doc"?firestoreSdk.getDoc(ref):firestoreSdk.getDocs(ref),2500);
     }catch(sdkError){
-      // Permission errors are immediate and actionable; do not hide them behind a fallback.
       if(sdkError?.code==="permission-denied")throw sdkError;
       console.warn("Firestore SDK read failed; trying REST fallback",kind,sdkError?.code||"",sdkError?.message||sdkError);
       try{return kind==="doc"?await restGetDoc(ref):await restGetDocs(ref)}
       catch(restError){
-        const message="Firestore SDK 讀取失敗（"+(sdkError?.code||"no-code")+"："+(sdkError?.message||sdkError)+"）；REST 備援也失敗（"+(restError?.code||"no-code")+"："+(restError?.message||restError)+"）。";
-        const combined=new Error(message);
-        combined.code=restError?.code||"firestore-read-failed";
-        combined.sdkError=sdkError;combined.restError=restError;
-        throw combined;
+        const error=new Error("Firestore SDK 讀取失敗（"+(sdkError?.code||"no-code")+"："+(sdkError?.message||sdkError)+"）；REST 備援也失敗（"+(restError?.code||"no-code")+"："+(restError?.message||restError)+"）。");
+        error.code=restError?.code||"firestore-read-failed";
+        error.sdkError=sdkError;error.restError=restError;
+        throw error;
       }
     }
   }
-  return {
-    initializeApp:(...args)=>firebase.initializeApp(...args),
-    getAuth:app=>app.auth(),
-    initializeFirestore:(app,settings)=>{
-      const firestore=app.firestore();
-      firestore.settings(settings||{});
-      return firestore;
-    },
-    doc:(dbOrCollection,...path)=>path.length?dbOrCollection.doc(path.join("/")):dbOrCollection.doc(),
-    collection:(db,...path)=>{
-      const ref=db.collection(path.join("/"));
-      restMeta.set(ref,{path:path.join("/"),constraints:[]});
-      return ref;
-    },
-    where:(field,op,value)=>({field,op,value}),
-    query:(base,...constraints)=>{
-      const previous=restMeta.get(base)||{path:String(base.path||""),constraints:[]};
-      const query=applyConstraints(base,constraints);
-      restMeta.set(query,{path:previous.path,constraints:[...previous.constraints,...constraints]});
-      return query;
-    },
-    getDoc:ref=>resilientRead("doc",ref),
-    getDocs:ref=>resilientRead("docs",ref),
-    setDoc:(ref,data,options)=>ref.set(data,options),
-    addDoc:(ref,data)=>ref.add(data),
-    updateDoc:(ref,data)=>ref.update(data),
-    deleteDoc:ref=>ref.delete(),
-    serverTimestamp:()=>firebase.firestore.FieldValue.serverTimestamp(),
-    writeBatch:db=>db.batch(),
-    runTransaction:(db,callback,options)=>db.runTransaction(tx=>callback({
-      get:async ref=>wrapDoc(await tx.get(ref)),
-      set:(...args)=>tx.set(...args),
-      update:(...args)=>tx.update(...args),
-      delete:(...args)=>tx.delete(...args)
-    }),options),
-    signInWithEmailAndPassword:(auth,email,password)=>auth.signInWithEmailAndPassword(email,password),
-    createUserWithEmailAndPassword:(auth,email,password)=>auth.createUserWithEmailAndPassword(email,password),
-    signOut:auth=>auth.signOut(),
-    deleteUser:user=>user.delete(),
-    deleteApp:app=>app.delete()
+  api.collection=(dbRef,...path)=>{
+    const ref=firestoreSdk.collection(dbRef,...path);
+    restMeta.set(ref,{path:path.join("/"),constraints:[]});
+    return ref;
   };
+  api.doc=(refOrDb,...path)=>{
+    const ref=firestoreSdk.doc(refOrDb,...path);
+    const refPath=String(ref.path||"");
+    if(refPath)restMeta.set(ref,{path:refPath,constraints:[]});
+    return ref;
+  };
+  api.where=(field,op,value)=>({native:firestoreSdk.where(field,op,value),descriptor:{field,op,value}});
+  api.query=(base,...constraints)=>{
+    const previous=restMeta.get(base)||{path:String(base.path||""),constraints:[]};
+    const result=firestoreSdk.query(base,...constraints.map(c=>c.native||c));
+    const descriptors=constraints.map(c=>c.descriptor).filter(Boolean);
+    restMeta.set(result,{path:previous.path,constraints:[...(previous.constraints||[]),...descriptors]});
+    return result;
+  };
+  api.getDoc=ref=>resilientRead("doc",ref);
+  api.getDocs=ref=>resilientRead("docs",ref);
+  return api;
 }
+// Use the explicitly named database visible in Firebase Console: /firestore/databases/default/...
+// This is different from Firestore's reserved database ID "(default)".
 async function boot(){
   try{
-    if(!window.firebase||!window.firebase.firestore||!window.firebase.auth){
-      throw new Error("Firebase compat SDK 未載入。請確認 Firebase 的 app-compat、firestore-compat 與 auth-compat 腳本可以正常連線。");
-    }
-    const configModule=await import("./firebase-config.js");
+    const [appSdk,authSdk,firestoreSdk,configModule]=await Promise.all([
+      import("https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js"),
+      import("https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js"),
+      import("https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js"),
+      import("./firebase-config.js")
+    ]);
+    sdk=createModularSdk(appSdk,authSdk,firestoreSdk);
     firebaseConfig=configModule.firebaseConfig;
-    sdk=createCompatSdk(window.firebase);
-    app=sdk.initializeApp(firebaseConfig);auth=sdk.getAuth(app);
-    // 使用和可正常運作的個人網站相同版本的 compat SDK，並在首次讀寫前啟用 long polling。
-    db=sdk.initializeFirestore(app,{experimentalForceLongPolling:true});
+    app=sdk.initializeApp(firebaseConfig);
+    auth=sdk.getAuth(app);
+    // The console route showed database ID "default"; target it explicitly.
+    db=sdk.initializeFirestore(app,{experimentalForceLongPolling:true},FIRESTORE_DATABASE_ID);
     try{
       await loadConfig();
       render();
