@@ -623,7 +623,8 @@ async function showAdmin(){
       }catch(err){
         const content=$("#adminContent");
         const message=friendlyError(err);
-        if(content)content.innerHTML='<div class="feedback error">無法開啟功能：'+esc(message)+'<br>請確認 Firestore Rules 已發布，且管理員帳號具有讀取權限。</div>';
+        const hint=err?.code==="permission-denied"?"請到 Firebase Console → Firestore Database → Rules，確認已發布目前的 firestore.rules。":err?.code==="firestore-rest-timeout"?"SDK 與 REST 兩種讀取方式均無回應；這是連線／資料庫端問題，並非單純的畫面載入問題。":err?.code?.startsWith("firestore-rest-http-")?"REST API 已回應錯誤，請依上方 HTTP 狀態與回應內容修正專案設定或 Rules。":"系統已嘗試 Firestore SDK 與 REST 備援讀取；請查看上方完整錯誤內容。";
+        if(content)content.innerHTML='<div class="feedback error">無法開啟功能：'+esc(message)+'<br>'+esc(hint)+'</div>';
         if(msg){msg.classList.remove("hidden");msg.classList.add("error");msg.textContent="載入失敗："+message}
       }
       return;
@@ -1252,6 +1253,7 @@ function bindShell(){
 // Compat adapter：依照可正常運作的個人網站後台，統一改用 Firebase 10.12.2 compat API。
 // 保留目前預約系統使用的介面，避免重寫交易、借用、課表匯入及照片流程。
 function createCompatSdk(firebase){
+  const restMeta=new WeakMap();
   const wrapDoc=s=>({
     id:s.id,
     ref:s.ref,
@@ -1268,6 +1270,159 @@ function createCompatSdk(firebase){
     forEach:fn=>s.forEach(d=>fn(wrapDoc(d)))
   });
   const applyConstraints=(base,constraints)=>(constraints||[]).reduce((q,c)=>q.where(c.field,c.op,c.value),base);
+
+  // Firestore WebChannel reads are hanging in this deployment. After a short SDK attempt,
+  // use Firestore's HTTPS REST API for reads. Writes/transactions still use the official SDK.
+  function readTimeout(promise,ms){
+    let timer;
+    const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>{
+      const e=new Error("Firebase SDK 讀取在 "+ms+"ms 內沒有回應");e.code="csu/sdk-read-timeout";reject(e);
+    },ms)});
+    return Promise.race([Promise.resolve(promise),timeout]).finally(()=>clearTimeout(timer));
+  }
+  function decodeValue(v){
+    if(!v||typeof v!=="object")return v;
+    if("nullValue" in v)return null;
+    if("stringValue" in v)return v.stringValue;
+    if("booleanValue" in v)return v.booleanValue;
+    if("integerValue" in v)return Number(v.integerValue);
+    if("doubleValue" in v)return Number(v.doubleValue);
+    if("timestampValue" in v)return firebase.firestore.Timestamp.fromDate(new Date(v.timestampValue));
+    if("referenceValue" in v){
+      const marker="/documents/",i=v.referenceValue.indexOf(marker);
+      return i>=0&&db?db.doc(v.referenceValue.slice(i+marker.length)):v.referenceValue;
+    }
+    if("bytesValue" in v)return v.bytesValue;
+    if("geoPointValue" in v)return v.geoPointValue;
+    if("arrayValue" in v)return (v.arrayValue.values||[]).map(decodeValue);
+    if("mapValue" in v)return decodeFields(v.mapValue.fields||{});
+    return v;
+  }
+  function decodeFields(fields){
+    return Object.fromEntries(Object.entries(fields||{}).map(([k,v])=>[k,decodeValue(v)]));
+  }
+  function encodeValue(value){
+    if(value===null)return {nullValue:null};
+    if(typeof value==="string")return {stringValue:value};
+    if(typeof value==="boolean")return {booleanValue:value};
+    if(typeof value==="number")return Number.isInteger(value)?{integerValue:String(value)}:{doubleValue:value};
+    if(value instanceof Date)return {timestampValue:value.toISOString()};
+    if(value&&typeof value.toDate==="function")return {timestampValue:value.toDate().toISOString()};
+    return {stringValue:String(value)};
+  }
+  async function restRequest(url,init={},allow404=false){
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),7000);
+    try{
+      const headers={...(init.headers||{})};
+      const user=auth&&auth.currentUser;
+      if(user){
+        try{headers.Authorization="Bearer "+await user.getIdToken()}catch(e){
+          throw new Error("取得管理員登入權杖失敗："+(e?.message||e));
+        }
+      }
+      headers["Content-Type"]="application/json";
+      const response=await fetch(url,{...init,headers,signal:controller.signal});
+      const body=await response.text();
+      if(allow404&&response.status===404)return {__notFound:true};
+      let parsed={};
+      try{parsed=body?JSON.parse(body):{}}catch(_){}
+      if(!response.ok){
+        const apiError=parsed?.error||{};
+        const detail=apiError.message||body||response.statusText;
+        const e=new Error("Firestore REST API HTTP "+response.status+"："+String(detail).slice(0,700));
+        e.code="firestore-rest-http-"+response.status;
+        throw e;
+      }
+      return parsed;
+    }catch(e){
+      if(e?.name==="AbortError"){
+        const err=new Error("Firestore REST API 連線在 7 秒內沒有回應。請確認此網路能連到 firestore.googleapis.com。");
+        err.code="firestore-rest-timeout";throw err;
+      }
+      throw e;
+    }finally{clearTimeout(timer)}
+  }
+  function restRoot(){
+    if(!firebaseConfig?.projectId||!firebaseConfig?.apiKey)throw new Error("Firebase 專案 ID 或 API Key 尚未載入。");
+    return "https://firestore.googleapis.com/v1/projects/"+encodeURIComponent(firebaseConfig.projectId)+"/databases/(default)/documents";
+  }
+  function restSnapshot(docData,path){
+    const ref=db.doc(path),exists=!!docData;
+    const data=exists?decodeFields(docData.fields||{}):undefined;
+    return {
+      id:ref.id,ref,exists:()=>exists,data:()=>data,
+      get:field=>data?.[field],
+      metadata:{fromCache:false,hasPendingWrites:false}
+    };
+  }
+  async function restGetDoc(ref){
+    const path=String(ref.path||"");
+    const result=await restRequest(restRoot()+"/"+path.split("/").map(encodeURIComponent).join("?"),{},true);
+    if(result.__notFound)return restSnapshot(null,path);
+    return restSnapshot(result,path);
+  }
+  async function restGetDocs(ref){
+    const meta=restMeta.get(ref)||{path:String(ref.path||""),constraints:[]};
+    const path=meta.path;
+    if(!path)throw new Error("無法取得 Firestore 集合路徑。");
+    const constraints=meta.constraints||[];
+    const docs=[];
+    if(constraints.length){
+      const parts=path.split("/"),collectionId=parts.pop(),parentDocPath=parts.join("/");
+      const endpoint=restRoot()+(parentDocPath?"/"+parentDocPath.split("/").map(encodeURIComponent).join("/"): "")+":runQuery";
+      const filters=constraints.map(c=>({
+        fieldFilter:{
+          field:{fieldPath:c.field},
+          op:({"==":"EQUAL","!=":"NOT_EQUAL","<":"LESS_THAN","<=":"LESS_THAN_OR_EQUAL",">":"GREATER_THAN",">=":"GREATER_THAN_OR_EQUAL"}[c.op]||"EQUAL"),
+          value:encodeValue(c.value)
+        }
+      }));
+      const where=filters.length===1?filters[0]:{compositeFilter:{op:"AND",filters}};
+      const result=await restRequest(endpoint,{method:"POST",body:JSON.stringify({
+        structuredQuery:{from:[{collectionId}],where,limit:1000}
+      })});
+      for(const row of Array.isArray(result)?result:[]){
+        if(!row.document)continue;
+        const marker="/documents/",idx=row.document.name.indexOf(marker);
+        if(idx<0)continue;
+        docs.push(restSnapshot(row.document,row.document.name.slice(idx+marker.length)));
+      }
+    }else{
+      let token="";
+      do{
+        const url=restRoot()+"/"+path.split("/").map(encodeURIComponent).join("/")+
+          "?pageSize=1000"+(token?"&pageToken="+encodeURIComponent(token):"");
+        const result=await restRequest(url);
+        for(const d of result.documents||[]){
+          const marker="/documents/",idx=d.name.indexOf(marker);
+          if(idx<0)continue;
+          docs.push(restSnapshot(d,d.name.slice(idx+marker.length)));
+        }
+        token=result.nextPageToken||"";
+      }while(token);
+    }
+    return {docs,empty:docs.length===0,size:docs.length,metadata:{fromCache:false,hasPendingWrites:false},forEach:fn=>docs.forEach(fn)};
+  }
+  async function resilientRead(kind,ref){
+    try{
+      const sdkPromise=kind==="doc"?ref.get():ref.get();
+      const snapshot=await readTimeout(sdkPromise,2500);
+      return kind==="doc"?wrapDoc(snapshot):wrapQuery(snapshot);
+    }catch(sdkError){
+      // Permission errors are immediate and actionable; do not hide them behind a fallback.
+      if(sdkError?.code==="permission-denied")throw sdkError;
+      console.warn("Firestore SDK read failed; trying REST fallback",kind,sdkError?.code||"",sdkError?.message||sdkError);
+      try{return kind==="doc"?await restGetDoc(ref):await restGetDocs(ref)}
+      catch(restError){
+        const message="Firestore SDK 讀取失敗（"+(sdkError?.code||"no-code")+"："+(sdkError?.message||sdkError)+"）；REST 備援也失敗（"+(restError?.code||"no-code")+"："+(restError?.message||restError)+"）。";
+        const combined=new Error(message);
+        combined.code=restError?.code||"firestore-read-failed";
+        combined.sdkError=sdkError;combined.restError=restError;
+        throw combined;
+      }
+    }
+  }
   return {
     initializeApp:(...args)=>firebase.initializeApp(...args),
     getAuth:app=>app.auth(),
@@ -1277,11 +1432,20 @@ function createCompatSdk(firebase){
       return firestore;
     },
     doc:(dbOrCollection,...path)=>path.length?dbOrCollection.doc(path.join("/")):dbOrCollection.doc(),
-    collection:(db,...path)=>db.collection(path.join("/")),
+    collection:(db,...path)=>{
+      const ref=db.collection(path.join("/"));
+      restMeta.set(ref,{path:path.join("/"),constraints:[]});
+      return ref;
+    },
     where:(field,op,value)=>({field,op,value}),
-    query:(base,...constraints)=>applyConstraints(base,constraints),
-    getDoc:async ref=>wrapDoc(await ref.get()),
-    getDocs:async ref=>wrapQuery(await ref.get()),
+    query:(base,...constraints)=>{
+      const previous=restMeta.get(base)||{path:String(base.path||""),constraints:[]};
+      const query=applyConstraints(base,constraints);
+      restMeta.set(query,{path:previous.path,constraints:[...previous.constraints,...constraints]});
+      return query;
+    },
+    getDoc:ref=>resilientRead("doc",ref),
+    getDocs:ref=>resilientRead("docs",ref),
     setDoc:(ref,data,options)=>ref.set(data,options),
     addDoc:(ref,data)=>ref.add(data),
     updateDoc:(ref,data)=>ref.update(data),
