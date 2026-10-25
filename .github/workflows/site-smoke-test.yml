@@ -58,6 +58,18 @@ jobs:
             const initialHeading = await page.locator("#view h2").first().textContent();
             console.log("INITIAL H2:", initialHeading);
             if (!initialHeading) throw new Error("APP_DID_NOT_RENDER");
+            await page.waitForFunction(() => typeof db !== "undefined" && !!db && typeof sdk !== "undefined" && typeof firebaseConfig !== "undefined", { timeout: 15000 });
+            const firestoreProbe = await page.evaluate(async () => {
+              const started = Date.now();
+              try {
+                const snap = await sdk.getDocs(sdk.collection(db, "items"));
+                return { ok: true, count: snap.size, elapsedMs: Date.now() - started };
+              } catch (e) {
+                return { ok: false, code: e && e.code || "", message: e && e.message || String(e), elapsedMs: Date.now() - started };
+              }
+            });
+            console.log("PUBLIC FIRESTORE ITEMS PROBE:", JSON.stringify(firestoreProbe));
+            if (!firestoreProbe.ok) throw new Error("PUBLIC_FIRESTORE_READ_FAILED: " + JSON.stringify(firestoreProbe));
             const tabs = await page.locator(".tab").allTextContents();
             console.log("PUBLIC TABS:", JSON.stringify(tabs));
             if (!tabs.some(t => t.includes("雙向借用"))) throw new Error("BIDIRECTIONAL_BORROWING_TAB_MISSING");
@@ -73,7 +85,7 @@ jobs:
             console.log("AFTER TAB CLICK:", workshopHeading);
             if (!workshopHeading.includes("正修微工坊")) throw new Error("TAB_CLICK_FAILED: " + workshopHeading);
             const appSource = await page.evaluate(async () => await (await fetch(document.querySelector("script[src*='app.js']").src)).text());
-            if (!appSource.includes('p.onclick=async(event)=>') || !appSource.includes('quickSeedBtn') || !appSource.includes('if(quick)await seedBaselineData()') || !appSource.includes('items') || !appSource.includes('schedule') || !appSource.includes('bookings') || !appSource.includes('本次沒有寫入資料。')) {
+            if (!appSource.includes("async function restGetDocs") || !appSource.includes("Firestore REST API") || !appSource.includes('p.onclick=async(event)=>') || !appSource.includes('quickSeedBtn') || !appSource.includes('if(quick)await seedBaselineData()') || !appSource.includes('items') || !appSource.includes('schedule') || !appSource.includes('bookings') || !appSource.includes('本次沒有寫入資料。')) {
               throw new Error("ADMIN_DELEGATED_NAV_OR_IMPORT_ACTION_MISSING");
             }
             console.log("ADMIN NAV HANDLER:", appSource.includes('p.onclick=async(event)=>'));
