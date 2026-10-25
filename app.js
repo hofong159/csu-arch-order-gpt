@@ -1358,7 +1358,7 @@ function createCompatSdk(firebase){
   }
   async function restGetDoc(ref){
     const path=String(ref.path||"");
-    const result=await restRequest(restRoot()+"/"+path.split("/").map(encodeURIComponent).join("?"),{},true);
+    const result=await restRequest(restRoot()+"/"+path.split("/").map(encodeURIComponent).join("/"),{},true);
     if(result.__notFound)return restSnapshot(null,path);
     return restSnapshot(result,path);
   }
