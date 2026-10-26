@@ -46,16 +46,17 @@ jobs:
             for (let attempt = 0; attempt < 30; attempt++) {
               await page.waitForTimeout(2500);
               appAsset = await page.locator("script[src*='app.js']").getAttribute("src").catch(() => "");
-              if (appAsset.includes("20261026-short-code-weekly-admin4")) break;
+              if (appAsset.includes("20261026-fixed-course-selector1")) break;
               response = await page.goto(url + "&retry=" + attempt, { waitUntil: "domcontentloaded", timeout: 60000 });
             }
-            if (!appAsset.includes("20261026-short-code-weekly-admin4")) throw new Error("LATEST_GITHUB_PAGES_ASSET_NOT_DEPLOYED: " + appAsset);
+            if (!appAsset.includes("20261026-fixed-course-selector1")) throw new Error("LATEST_GITHUB_PAGES_ASSET_NOT_DEPLOYED: " + appAsset);
             console.log("URL:", page.url());
             console.log("HTTP:", response?.status());
             console.log("TITLE:", await page.title());
             console.log("APP SCRIPT:", await page.locator("script[src*='app.js']").getAttribute("src"));
             await page.locator("#view h2").first().waitFor({ timeout: 10000 });
             const initialHeading = await page.locator("#view h2").first().textContent();
+            if (!initialHeading.includes("正修建築與室內設計系")) throw new Error("DEPARTMENT_HEADING_NOT_UPDATED");
             console.log("INITIAL H2:", initialHeading);
             if (!initialHeading) throw new Error("APP_DID_NOT_RENDER");
             await page.waitForFunction(() => typeof db !== "undefined" && !!db && typeof sdk !== "undefined" && typeof firebaseConfig !== "undefined", { timeout: 15000 });
@@ -88,7 +89,7 @@ jobs:
             if (!appSource.includes("async function restGetDocs") || !appSource.includes("Firestore REST API") ||
                 !appSource.includes('p.onclick=async(event)=>') || appSource.includes('quickSeedBtn') ||
                 !appSource.includes("weekly-admin-grid") || !appSource.includes("loadPublicWeeklyBoard") ||
-                !appSource.includes("data-weekly-copy") || !appSource.includes("data-deletebooking") || !appSource.includes("data-clear-weekday") || !appSource.includes("data-convert-legacy") || !appSource.includes("function randomNumericCode") || !appSource.includes("bookingLookups") ||
+                !appSource.includes("data-weekly-copy") || !appSource.includes("data-deletebooking") || !appSource.includes('id="weeklyCourseType"') || !appSource.includes("每週固定課程（每學期設定一次）") || !appSource.includes("singleCourse") || !appSource.includes("data-clear-weekday") || !appSource.includes("data-convert-legacy") || !appSource.includes("function randomNumericCode") || !appSource.includes("bookingLookups") ||
                 !appSource.includes('id="hours" type="text"') || !appSource.includes("items") ||
                 !appSource.includes("schedule") || !appSource.includes("bookings")) {
               throw new Error("WEEKLY_BOARD_OR_ADMIN_CONTROLS_MISSING");
