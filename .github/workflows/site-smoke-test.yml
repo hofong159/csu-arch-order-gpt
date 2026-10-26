@@ -89,7 +89,7 @@ jobs:
                 !appSource.includes('p.onclick=async(event)=>') || appSource.includes('quickSeedBtn') ||
                 !appSource.includes("weekly-admin-grid") || !appSource.includes("loadPublicWeeklyBoard") ||
                 !appSource.includes("data-weekly-copy") || !appSource.includes("data-deletebooking") ||
-                !appSource.includes('id="hours" type="number"') || !appSource.includes("items") ||
+                !appSource.includes('id="hours" type="text"') || !appSource.includes("items") ||
                 !appSource.includes("schedule") || !appSource.includes("bookings")) {
               throw new Error("WEEKLY_BOARD_OR_ADMIN_CONTROLS_MISSING");
             }
