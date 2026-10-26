@@ -222,7 +222,7 @@ async function loadPublicWeeklyBoard(){
       const bookingSnap=await sdk.getDocs(sdk.collection(db,"publicBookings"));
       bookings=bookingSnap.docs.map(d=>({id:d.id,...d.data()})).filter(b=>["pending","approved"].includes(b.status));
     }catch(e){bookingReadError=e;console.warn("Public booking occupancy read failed",e)}
-    const courses=courseResult.docs.map(normalizeCourseDocument).filter(Boolean);
+    const courses=courseResult.docs.filter(doc=>doc.data().type==="weeklyCourse"||doc.data().type==="singleCourse"||hasExplicitCourseWeekday(doc.data())).map(normalizeCourseDocument).filter(Boolean);
     const monday=new Date(today()+"T12:00:00");monday.setDate(monday.getDate()-(monday.getDay()+6)%7);
     const week=Array.from({length:7},(_,i)=>{
       const date=new Date(monday);date.setDate(monday.getDate()+i);
@@ -469,7 +469,7 @@ async function checkCourseConflicts(start,end,itemId){
   const dates=[];for(let d=new Date(start);d<end;d=new Date(d.getTime()+86400000))dates.push(localDate(d));
   if(!dates.length)dates.push(localDate(start));
   const snap=await sdk.getDocs(sdk.collection(db,"schedule"));
-  const courses=snap.docs.map(normalizeCourseDocument).filter(Boolean);
+  const courses=snap.docs.filter(doc=>doc.data().type==="weeklyCourse"||doc.data().type==="singleCourse"||hasExplicitCourseWeekday(doc.data())).map(normalizeCourseDocument).filter(Boolean);
   for(const day of dates){
     const weekday=new Date(day+"T12:00:00").getDay();
     for(const course of courses){
