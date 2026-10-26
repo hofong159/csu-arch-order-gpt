@@ -72,13 +72,13 @@ jobs:
             if (!firestoreProbe.ok && !["permission-denied", "firestore-rest-http-403"].includes(firestoreProbe.code)) throw new Error("PUBLIC_FIRESTORE_READ_FAILED: " + JSON.stringify(firestoreProbe));
             const tabs = await page.locator(".tab").allTextContents();
             console.log("PUBLIC TABS:", JSON.stringify(tabs));
-            if (!tabs.some(t => t.includes("雙向借用"))) throw new Error("BIDIRECTIONAL_BORROWING_TAB_MISSING");
+            if (!tabs.some(t => t.includes("其他登記"))) throw new Error("OTHER_REGISTRATION_TAB_MISSING");
             if (await page.locator("#publicWeekBoard").count() !== 1) throw new Error("PUBLIC_WEEK_BOARD_MISSING");
-            await page.getByRole("button", { name: "設備借還登記（雙向借用）" }).click();
+            await page.getByRole("button", { name: "其他登記" }).click();
             await page.waitForTimeout(200);
             const borrowHeading = await page.locator("#view h2").first().textContent().catch(() => "");
             console.log("BORROW TAB HEADING:", borrowHeading);
-            if (!borrowHeading.includes("雙向借用")) throw new Error("BORROW_TAB_CLICK_FAILED");
+            if (!borrowHeading.includes("其他登記")) throw new Error("OTHER_REGISTRATION_TAB_CLICK_FAILED");
             await page.getByRole("button", { name: "借用正修微工坊" }).click();
             await page.waitForTimeout(300);
             const workshopTabActive = await page.locator('.tab[data-view="micro"]').evaluate(el => el.classList.contains("active"));
