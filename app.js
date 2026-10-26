@@ -1219,7 +1219,7 @@ async function adminSection(which){
         return '<section class="week-day-column" data-drop-weekday="'+day.value+'"><div class="week-day-header"><h4>'+day.label+' <span>'+dayRows.length+' 格</span></h4><button type="button" class="danger weekly-clear-day" data-clear-weekday="'+day.value+'">清空這天</button></div>'+
           (dayRows.length?dayRows.map(row=>'<article class="weekly-course-card" draggable="true" data-weekly-card="'+esc(row.id)+'"><div class="drag-handle" title="拖曳到其他星期">⠿</div><div class="weekly-course-fields"><b>'+esc(config.items.find(i=>i.id===row.itemId)?.name||row.areaCode||"未指定區域")+'</b><span>'+esc(row.start)+'–'+esc(row.end)+'</span><span>'+esc(row.title||"（未填課程）")+'</span></div><div class="weekly-course-actions"><button type="button" class="secondary" data-weekly-edit="'+esc(row.id)+'">編輯</button><button type="button" class="secondary" data-weekly-copy="'+esc(row.id)+'">複製</button><button type="button" class="danger" data-weekly-delete="'+esc(row.id)+'">刪除</button></div></article>').join(""):'<p class="week-day-empty">沒有課程</p>')+'</section>';
       }).join("")+'</div>';
-    $( "[data-convert-legacy]" ).forEach(button=>button.onclick=async()=>{
+    $$( "[data-convert-legacy]" ).forEach(button=>button.onclick=async()=>{
       const id=button.dataset.convertLegacy;
       const raw=allSnap.docs.find(doc=>doc.id===id);
       const row=legacyRows.find(item=>item.id===id);
@@ -1234,7 +1234,7 @@ async function adminSection(which){
         await adminSection("schedule");toast("已轉成每週固定課表");
       }catch(e){button.disabled=false;toast("轉換失敗："+friendlyError(e))}
     });
-    $( "[data-legacy-delete]" ).forEach(button=>button.onclick=async()=>{
+    $$( "[data-legacy-delete]" ).forEach(button=>button.onclick=async()=>{
       const id=button.dataset.legacyDelete,row=legacyRows.find(item=>item.id===id);
       if(!row||!confirm("確定刪除這筆舊日期課表？"))return;
       button.disabled=true;
