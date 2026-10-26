@@ -73,7 +73,7 @@ jobs:
             const tabs = await page.locator(".tab").allTextContents();
             console.log("PUBLIC TABS:", JSON.stringify(tabs));
             if (!tabs.some(t => t.includes("雙向借用"))) throw new Error("BIDIRECTIONAL_BORROWING_TAB_MISSING");
-            if (await page.locator("#publicCourseDate").count() !== 1) throw new Error("PUBLIC_COURSE_BOARD_MISSING");
+            if (await page.locator("#publicWeekBoard").count() !== 1) throw new Error("PUBLIC_WEEK_BOARD_MISSING");
             await page.getByRole("button", { name: "設備借還登記（雙向借用）" }).click();
             await page.waitForTimeout(200);
             const borrowHeading = await page.locator("#view h2").first().textContent().catch(() => "");
