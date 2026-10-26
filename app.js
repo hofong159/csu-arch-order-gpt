@@ -6,7 +6,7 @@ const INITIAL_ADMIN_EMAIL = "hofong159@gmail.com";
 const FIRESTORE_DATABASE_ID = "default"; // named database shown in Firebase Console
 let sdk = {}, app = null, auth = null, db = null, firebaseConfig = null;
 let config = {items:[], rules:{}, settings:{}}, currentView = "booking", adminUser = null;
-const labels = {booking:"空間預約", borrowing:"其他登記", micro:"借用正修微工坊", output:"借用出圖室", records:"我的申請／簽到簽退"};
+const labels = {booking:"空間預約", borrowing:"其他借用", micro:"借用正修微工坊", output:"借用出圖室", records:"我的申請／簽到簽退"};
 const BASELINE_SPACES = [
   {code:"A", name:"A區"},
   {code:"B", name:"B區"},
@@ -134,6 +134,11 @@ const defaultRules = {
   micro:"使用前確認機器狀態並遵守操作規範，操作時請配戴必要防護具。",
   output:"使用前確認設備與檔案設定；離開前整理環境並帶走個人物品。"
 };
+const DEFAULT_CLOSED_NOTICES = {
+  borrowing:"目前暫停其他借用申請，請留意管理員公告。",
+  micro:"目前暫停正修微工坊借用，請留意管理員公告。",
+  output:"目前暫停出圖室借用，請留意管理員公告。"
+};
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const today = () => {
   const d = new Date();
@@ -160,7 +165,7 @@ async function bookingLookupId(phone,shortCode){
 }
 function getItems(type){return config.items.filter(i=>i.category===type||i.category==="all")}
 function timeOptions(){let s="";for(let h=0;h<24;h++)for(const m of ["00","30"]){const t=String(h).padStart(2,"0")+":"+m;s+='<option value="'+t+'">'+t+"</option>"}return s}
-function itemOptions(type){return '<option value="">請選擇空間／設備</option>'+getItems(type).map(i=>'<option value="'+esc(i.id)+'" '+(i.available===false?"disabled":"")+'>'+esc(i.name)+(i.available===false?"（暫停借用）":"")+"</option>").join("")}
+function itemOptions(type){const placeholder=type==="booking"?"請選擇空間／教室":"請選擇借用項目／設備";return '<option value="">'+placeholder+'</option>'+getItems(type).map(i=>'<option value="'+esc(i.id)+'" '+(i.available===false?"disabled":"")+'>'+esc(i.name)+(i.available===false?"（暫停借用）":"")+"</option>").join("")}
 async function loadConfig(){
   const [settingsSnap,itemsSnap] = await Promise.all([
     sdk.getDoc(sdk.doc(db,"settings","public")),
@@ -180,7 +185,7 @@ function requestForm(type,title){
     '<label class="field">班級／單位 *<input id="className" required maxlength="80" placeholder="例如：建築四甲"></label>'+
     '<label class="field">手機號碼 *<input id="phone" type="tel" required maxlength="30" placeholder="09xxxxxxxx"></label>'+
     '<label class="field">借用方式<select id="borrowType"><option value="單人借用">單人借用</option><option value="小組借用">小組借用</option></select></label>'+
-    '<label class="field">空間／設備 *<select id="item" required>'+itemOptions(type)+'</select></label>'+
+    '<label class="field">'+(type==="booking"?"預約空間／教室":"借用項目／設備")+' *<select id="item" required>'+itemOptions(type)+'</select></label>'+
     '<label class="field">開始日期 *<input id="date" type="date" value="'+today()+'" min="'+today()+'" required></label>'+
     '<label class="field">開始時間 *<select id="start" required>'+timeOptions()+'</select></label>'+
     '<label class="field">借用時數（小時）*<input id="hours" type="text" inputmode="numeric" autocomplete="off" maxlength="1" pattern="3|6" value="3" required placeholder="請輸入 3 或 6"></label></div>'+
@@ -195,11 +200,17 @@ function render(){
   $$(".tab").forEach(b=>b.classList.toggle("active",b.dataset.view===currentView));
   const v=$("#view");if(!v)return;
   if(currentView==="booking")v.innerHTML=requestForm("booking","正修建築與室內設計系九樓設計教室空間預約");
-  else if(currentView==="borrowing")v.innerHTML=requestForm("borrowing","其他登記");
-  else if(currentView==="micro"||currentView==="output"){
-    const closed=config.settings[currentView+"Open"]===false;
-    const cards=getItems(currentView).map(i=>'<article class="item"><h3>'+esc(i.name)+'</h3><span class="status '+(i.available===false?"off":"")+'">'+(i.available===false?"目前不可用":"可用")+'</span><p>'+esc(i.description||"請依現場公告及管理員指示使用。")+'</p></article>').join("");
-    v.innerHTML='<div class="notice">'+labels[currentView]+'目前：<b>'+(closed?"暫停開放":"開放申請")+'</b></div>'+(closed?"<p>目前暫停申請，請留意管理員公告。</p>":'<div class="cards">'+(cards||'<p class="muted">目前尚未建立機器或設備清單。</p>')+'</div>'+requestForm(currentView,labels[currentView]));
+  else if(["borrowing","micro","output"].includes(currentView)){
+    const type=currentView,closed=config.settings[type+"Open"]===false;
+    const cards=getItems(type).map(i=>'<article class="item"><h3>'+esc(i.name)+'</h3><span class="status '+(i.available===false?"off":"")+'">'+(i.available===false?"目前不可用":"可用")+'</span><p>'+esc(i.description||"請依現場公告及管理員指示使用。")+'</p></article>').join("");
+    if(closed){
+      const notice=config.settings[type+"ClosedNotice"]||DEFAULT_CLOSED_NOTICES[type];
+      v.innerHTML='<div class="notice"><h2>'+esc(labels[type])+'：暫停開放</h2><p>'+esc(notice)+'</p></div>';
+    }else if(type==="borrowing"){
+      v.innerHTML=requestForm(type,labels[type]);
+    }else{
+      v.innerHTML='<div class="notice">'+labels[type]+'目前：<b>開放申請</b></div><div class="cards">'+(cards||'<p class="muted">目前尚未建立借用項目／設備清單。</p>')+'</div>'+requestForm(type,labels[type]);
+    }
   }else{
     v.innerHTML='<h2>我的申請／簽到簽退</h2><p class="muted">學生免登入。請使用申請時取得的五碼數字查詢碼和原本填寫的手機號碼；遺失查詢碼後，無法從公開頁面找回。</p>'+
       '<div class="grid"><label class="field">申請時的手機號碼<input id="lookupPhone" type="tel" required></label><label class="field">申請查詢碼<input id="lookupCode" maxlength="32" required placeholder="5 碼數字查詢碼（舊申請可用原碼）"></label></div>'+
@@ -488,9 +499,9 @@ async function submitRequest(e){
   const itemId=val("item"),item=config.items.find(i=>i.id===itemId),hours=Number(val("hours"));
   try{
     feedback("requestMessage","");
-    if(!val("personName")||!val("className")||!val("phone")||!itemId||!val("date"))throw new Error("請完整填寫姓名、班級、手機、空間／設備及日期。");
-    if(!item||item.available===false)throw new Error("此空間／設備目前不可用。");
-    if(type==="micro"&&config.settings.microOpen===false||type==="output"&&config.settings.outputOpen===false)throw new Error("此空間目前暫停開放。");
+    if(!val("personName")||!val("className")||!val("phone")||!itemId||!val("date"))throw new Error("請完整填寫姓名、班級、手機、借用項目及日期。");
+    if(!item||item.available===false)throw new Error("此借用項目目前不可用。");
+    if(["borrowing","micro","output"].includes(type)&&config.settings[type+"Open"]===false)throw new Error(config.settings[type+"ClosedNotice"]||DEFAULT_CLOSED_NOTICES[type]);
     if(["micro","output"].includes(type)&&!$("#agreeRules").checked)throw new Error("請先閱讀並同意使用規範。");
     if(!$("#agree").checked)throw new Error("請先勾選使用責任與簽退規範。");
     if(!Number.isFinite(hours)||hours<3||hours>6||hours%3!==0)throw new Error("借用時數請輸入 3 或 6 小時。");
@@ -1165,22 +1176,53 @@ async function adminSection(which){
   }
   if(which==="settings"){
     const s=config.settings||{},r=config.rules||{};
-    c.innerHTML='<h3>開放狀態／公告</h3><p class="muted">修改後按「儲存設定」。若 Firestore 規則不允許寫入，錯誤會直接顯示在此處。</p>'+
+    c.innerHTML='<h3>開放狀態／公告</h3><p class="muted">其他借用、正修微工坊、出圖室可分別開關，也能各自修改關閉時顯示的公告。儲存只更新這些設定欄位，不會刪除或覆蓋既有申請、課表、項目或照片。</p>'+
+      '<label class="check"><input id="borrowingOpen" type="checkbox" '+(s.borrowingOpen===false?"":"checked")+'>開放其他借用</label>'+
+      '<label class="field">其他借用關閉時公告<textarea id="borrowingClosedNotice">'+esc(s.borrowingClosedNotice||DEFAULT_CLOSED_NOTICES.borrowing)+'</textarea></label>'+
       '<label class="check"><input id="microOpen" type="checkbox" '+(s.microOpen===false?"":"checked")+'>開放正修微工坊</label>'+
+      '<label class="field">正修微工坊關閉時公告<textarea id="microClosedNotice">'+esc(s.microClosedNotice||DEFAULT_CLOSED_NOTICES.micro)+'</textarea></label>'+
       '<label class="check"><input id="outputOpen" type="checkbox" '+(s.outputOpen===false?"":"checked")+'>開放出圖室</label>'+
-      '<label class="field">公告／提醒<textarea id="siteNotice">'+esc(s.notice||"")+'</textarea></label>'+
-      ["booking","micro","output"].map(k=>'<label class="field">'+labels[k]+'規範<textarea id="rule_'+k+'">'+esc(r[k]||defaultRules[k])+'</textarea></label>').join("")+
+      '<label class="field">出圖室關閉時公告<textarea id="outputClosedNotice">'+esc(s.outputClosedNotice||DEFAULT_CLOSED_NOTICES.output)+'</textarea></label>'+
+      '<label class="field">公告／提醒（開放申請時顯示）<textarea id="siteNotice">'+esc(s.notice||"")+'</textarea></label>'+
+      ["booking","borrowing","micro","output"].map(k=>'<label class="field">'+labels[k]+'規範<textarea id="rule_'+k+'">'+esc(r[k]||defaultRules[k])+'</textarea></label>').join("")+
       '<button id="saveSettings" class="primary">儲存設定</button>'+
       '<p id="settingsMessage" class="feedback" role="status" aria-live="polite"></p>';
     $("#saveSettings").onclick=async()=>{
       const button=$("#saveSettings");button.disabled=true;
       try{
-        await sdk.setDoc(sdk.doc(db,"settings","public"),{
-          settings:{microOpen:$("#microOpen").checked,outputOpen:$("#outputOpen").checked,notice:$("#siteNotice").value},
-          rules:Object.fromEntries(["booking","micro","output"].map(k=>[k,$("#rule_"+k).value]))
+        const settingsRef=sdk.doc(db,"settings","public");
+        const values={
+          "settings.borrowingOpen":$("#borrowingOpen").checked,
+          "settings.borrowingClosedNotice":$("#borrowingClosedNotice").value,
+          "settings.microOpen":$("#microOpen").checked,
+          "settings.microClosedNotice":$("#microClosedNotice").value,
+          "settings.outputOpen":$("#outputOpen").checked,
+          "settings.outputClosedNotice":$("#outputClosedNotice").value,
+          "settings.notice":$("#siteNotice").value,
+          "rules.booking":$("#rule_booking").value,
+          "rules.borrowing":$("#rule_borrowing").value,
+          "rules.micro":$("#rule_micro").value,
+          "rules.output":$("#rule_output").value
+        };
+        const existing=await sdk.getDoc(settingsRef);
+        if(existing.exists())await sdk.updateDoc(settingsRef,values);
+        else await sdk.setDoc(settingsRef,{
+          settings:{
+            borrowingOpen:$("#borrowingOpen").checked,
+            borrowingClosedNotice:$("#borrowingClosedNotice").value,
+            microOpen:$("#microOpen").checked,
+            microClosedNotice:$("#microClosedNotice").value,
+            outputOpen:$("#outputOpen").checked,
+            outputClosedNotice:$("#outputClosedNotice").value,
+            notice:$("#siteNotice").value
+          },
+          rules:{
+            booking:$("#rule_booking").value,borrowing:$("#rule_borrowing").value,
+            micro:$("#rule_micro").value,output:$("#rule_output").value
+          }
         },{merge:true});
         await loadConfig();
-        feedback("settingsMessage","設定已成功儲存至 Firebase。");
+        feedback("settingsMessage","設定已成功儲存。只有開放狀態、關閉公告、一般公告與規範欄位已更新；既有資料未變動。");
         toast("設定已儲存");
       }catch(e){
         feedback("settingsMessage","儲存失敗："+friendlyError(e)+"。如果是 permission-denied，請確認已發布最新版 firestore.rules。",true);
@@ -1188,8 +1230,8 @@ async function adminSection(which){
     };
   }
   if(which==="items"){
-    c.innerHTML='<h3>新增空間／設備</h3><div class="grid"><label class="field">名稱<input id="newName"></label><label class="field">分類<select id="newCategory"><option value="booking">設計教室</option><option value="micro">正修微工坊</option><option value="output">出圖室</option><option value="all">全部分類</option></select></label></div><label class="field">說明／用途<input id="newDesc"></label><label class="check"><input id="newAvailable" type="checkbox" checked>目前可用</label><button id="addItem" class="primary">新增項目</button><h3>既有項目（可編輯）</h3><div class="table-wrap"><table><thead><tr><th>名稱／說明</th><th>分類</th><th>狀態</th><th>操作</th></tr></thead><tbody>'+
-      config.items.map(i=>'<tr><td><input data-name="'+esc(i.id)+'" value="'+esc(i.name)+'"><input data-desc="'+esc(i.id)+'" value="'+esc(i.description||"")+'" placeholder="說明"></td><td><select data-cat="'+esc(i.id)+'">'+["booking","borrowing","micro","output","all"].map(k=>'<option value="'+k+'" '+(i.category===k?"selected":"")+'">'+({booking:"設計教室",borrowing:"舊雙向借用（停用）",micro:"正修微工坊",output:"出圖室",all:"全部分類"}[k])+'</option>').join("")+'</select></td><td><input data-avail="'+esc(i.id)+'" type="checkbox" '+(i.available===false?"":"checked")+'></td><td><button class="secondary" data-saveitem="'+esc(i.id)+'">儲存</button><button class="danger" data-delitem="'+esc(i.id)+'">刪除</button></td></tr>').join("")+
+    c.innerHTML='<h3>新增空間／設備</h3><div class="grid"><label class="field">名稱<input id="newName"></label><label class="field">分類<select id="newCategory"><option value="booking">設計教室／空間預約</option><option value="borrowing">其他借用項目</option><option value="micro">正修微工坊</option><option value="output">出圖室</option><option value="all">全部分類</option></select></label></div><label class="field">說明／用途<input id="newDesc"></label><label class="check"><input id="newAvailable" type="checkbox" checked>目前可用</label><button id="addItem" class="primary">新增項目</button><h3>既有項目（可編輯）</h3><div class="table-wrap"><table><thead><tr><th>名稱／說明</th><th>分類</th><th>狀態</th><th>操作</th></tr></thead><tbody>'+
+      config.items.map(i=>'<tr><td><input data-name="'+esc(i.id)+'" value="'+esc(i.name)+'"><input data-desc="'+esc(i.id)+'" value="'+esc(i.description||"")+'" placeholder="說明"></td><td><select data-cat="'+esc(i.id)+'">'+["booking","borrowing","micro","output","all"].map(k=>'<option value="'+k+'" '+(i.category===k?"selected":"")+'">'+({booking:"設計教室／空間預約",borrowing:"其他借用項目",micro:"正修微工坊",output:"出圖室",all:"全部分類"}[k])+'</option>').join("")+'</select></td><td><input data-avail="'+esc(i.id)+'" type="checkbox" '+(i.available===false?"":"checked")+'></td><td><button class="secondary" data-saveitem="'+esc(i.id)+'">儲存</button><button class="danger" data-delitem="'+esc(i.id)+'">刪除</button></td></tr>').join("")+
       '</tbody></table></div>'+(config.items.length?'<p class="muted">請依實際空間與設備維護上方清單。</p>':'<div class="notice"><b>目前尚無空間／設備。</b><p>請使用上方「新增空間／設備」表單逐項建立。</p></div>') ;
     $("#addItem").onclick=async()=>{const name=$("#newName").value.trim();if(!name)return toast("請輸入名稱");try{await sdk.addDoc(sdk.collection(db,"items"),{name,category:$("#newCategory").value,description:$("#newDesc").value,available:$("#newAvailable").checked,updatedAt:sdk.serverTimestamp()});await loadConfig();await adminSection("items");render();toast("項目已新增")}catch(e){toast("新增失敗："+friendlyError(e))}};
     $$("[data-saveitem]").forEach(b=>b.onclick=async()=>{const id=b.dataset.saveitem;try{await sdk.updateDoc(sdk.doc(db,"items",id),{name:$("[data-name='"+id+"']",c).value.trim(),description:$("[data-desc='"+id+"']",c).value,category:$("[data-cat='"+id+"']",c).value,available:$("[data-avail='"+id+"']",c).checked,updatedAt:sdk.serverTimestamp()});await loadConfig();await adminSection("items");render();toast("項目已更新")}catch(e){toast("更新失敗："+friendlyError(e))}});
