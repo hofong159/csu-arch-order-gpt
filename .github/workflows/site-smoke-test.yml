@@ -81,15 +81,21 @@ jobs:
             if (!borrowHeading.includes("雙向借用")) throw new Error("BORROW_TAB_CLICK_FAILED");
             await page.getByRole("button", { name: "借用正修微工坊" }).click();
             await page.waitForTimeout(300);
-            const workshopHeading = await page.locator("#view h2").first().textContent().catch(() => "");
-            console.log("AFTER TAB CLICK:", workshopHeading);
-            if (!workshopHeading.includes("正修微工坊")) throw new Error("TAB_CLICK_FAILED: " + workshopHeading);
+            const workshopTabActive = await page.locator('.tab[data-view="micro"]').evaluate(el => el.classList.contains("active"));
+            console.log("WORKSHOP TAB ACTIVE:", workshopTabActive);
+            if (!workshopTabActive) throw new Error("WORKSHOP_TAB_CLICK_FAILED");
             const appSource = await page.evaluate(async () => await (await fetch(document.querySelector("script[src*='app.js']").src)).text());
-            if (!appSource.includes("async function restGetDocs") || !appSource.includes("Firestore REST API") || !appSource.includes('p.onclick=async(event)=>') || !appSource.includes('quickSeedBtn') || !appSource.includes('if(quick)await seedBaselineData()') || !appSource.includes('items') || !appSource.includes('schedule') || !appSource.includes('bookings') || !appSource.includes('本次沒有寫入資料。')) {
-              throw new Error("ADMIN_DELEGATED_NAV_OR_IMPORT_ACTION_MISSING");
+            if (!appSource.includes("async function restGetDocs") || !appSource.includes("Firestore REST API") ||
+                !appSource.includes('p.onclick=async(event)=>') || appSource.includes('quickSeedBtn') ||
+                !appSource.includes("weekly-admin-grid") || !appSource.includes("loadPublicWeeklyBoard") ||
+                !appSource.includes("data-weekly-copy") || !appSource.includes("data-deletebooking") ||
+                !appSource.includes('id="hours" type="number"') || !appSource.includes("items") ||
+                !appSource.includes("schedule") || !appSource.includes("bookings")) {
+              throw new Error("WEEKLY_BOARD_OR_ADMIN_CONTROLS_MISSING");
             }
             console.log("ADMIN NAV HANDLER:", appSource.includes('p.onclick=async(event)=>'));
-            console.log("IMPORT ACTION:", appSource.includes('quickSeedBtn'));
+            console.log("WEEKLY GRID:", appSource.includes("weekly-admin-grid"));
+            console.log("BOOKING DELETE:", appSource.includes("data-deletebooking"));
             const featureFns = await page.evaluate(async () => {
               const originalItems = config.items;
               let mapped = [];
@@ -126,7 +132,7 @@ jobs:
                 nestedLegacyArray: legacyArray(wrapped, ["spaces"]).length === 1 && legacyArray(wrapped, ["courses"]).length === 1,
                 photoCompressor: typeof compressImage,
                 photoCleaner: typeof cleanupExpiredPhotos,
-                courseBoard: typeof loadPublicCourseBoard,
+                courseBoard: typeof loadPublicWeeklyBoard,
                 legacyExportSnippet: typeof LEGACY_EXPORT_SNIPPET === "string" && LEGACY_EXPORT_SNIPPET.includes(".getBoard(day)"),
                 legacyExporterKeepsDate: LEGACY_EXPORT_SNIPPET.includes('item.date || "", item.endDate || ""'),
                 csvRows: parseCsvText('日期,區域,開始時間,結束時間,課程名稱\n2026-10-24,A,13:00,13:45,基本設計').length,
