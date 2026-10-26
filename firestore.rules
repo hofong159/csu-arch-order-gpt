@@ -143,8 +143,7 @@ service cloud.firestore {
         && request.resource.data.startAt is int
         && request.resource.data.endAt is int
         && request.resource.data.startAt < request.resource.data.endAt
-        && request.resource.data.status == 'pending'
-        && request.resource.data.createdAt == request.time
+        && (isAdmin() || (request.resource.data.status == 'pending' && request.resource.data.createdAt == request.time))
         && exists(/databases/$(database)/documents/items/$(request.resource.data.itemId))
         && get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.name == request.resource.data.item;
       allow update, delete: if isAdmin();
