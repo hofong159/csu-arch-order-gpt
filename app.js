@@ -1179,18 +1179,19 @@ async function adminSection(which){
     });
     const weekdays=weekDays();
     const roomOptions='<option value="">請選擇區域</option>'+config.items.filter(i=>i.category==="booking"||i.category==="all").map(i=>'<option value="'+esc(i.id)+'">'+esc(i.name)+'</option>').join("");
-    c.innerHTML='<h3>每週固定課表</h3><p class="muted">每學期設定一次即可，不需要輸入日期，也不用每週重複新增。可以拖曳課程卡片到其他星期，或複製一格後修改。</p>'+
-      '<div class="weekly-editor">'+
+    c.innerHTML='<h3>每週固定課表</h3><p class="muted">每學期設定一次即可；不用填日期、不用每週重複新增。卡片可拖曳到正確星期，也可編輯、複製。舊資料如果只有日期而沒有星期，請拖到正確星期，存檔後就會固定每週顯示。</p>'+
+      '<details class="weekly-editor-details" open><summary>新增／編輯課程格</summary><div class="weekly-editor">'+
       '<input type="hidden" id="weeklyEditId" value="">'+
       '<label class="field">星期<select id="weeklyDay">'+weekdays.map(d=>'<option value="'+d.value+'">'+d.label+'</option>').join("")+'</select></label>'+
       '<label class="field">區域<select id="weeklyRoom">'+roomOptions+'</select></label>'+
       '<div class="grid"><label class="field">開始時間<input id="weeklyStart" type="time" value="13:00" required></label><label class="field">結束時間<input id="weeklyEnd" type="time" value="13:45" required></label></div>'+
-      '<label class="field">課程<textarea id="weeklyTitle" rows="2" maxlength="180" placeholder="例如：建築與室內設計（一）／教師姓名"></textarea></label>'+
-      '<div class="button-row"><button type="button" id="weeklySave" class="primary">新增課程格</button><button type="button" id="weeklyReset" class="secondary">清空</button><span id="weeklyMessage" class="feedback" role="status"></span></div></div>'+
-      '<h3>整週課表（'+rows.length+' 格）</h3><div class="weekly-admin-grid">'+weekdays.map(day=>{
+      '<label class="field">課程／教師<textarea id="weeklyTitle" rows="2" maxlength="180" placeholder="輸入課程名稱與教師"></textarea></label>'+
+      '<div class="button-row"><button type="button" id="weeklySave" class="primary">新增課程格</button><button type="button" id="weeklyReset" class="secondary">清空表單</button><span id="weeklyMessage" class="feedback" role="status"></span></div></div></details>'+
+      '<div class="weekly-admin-heading"><h3>整週課表（'+rows.length+' 格）</h3><span class="muted">點「清空這天」可一次刪除該星期的所有課程格。</span></div>'+
+      '<div class="weekly-admin-grid">'+weekdays.map(day=>{
         const dayRows=rows.filter(r=>r.weekday===day.value);
-        return '<section class="week-day-column" data-drop-weekday="'+day.value+'"><h4>'+day.label+' <span>'+dayRows.length+' 格</span></h4>'+
-          (dayRows.length?dayRows.map(row=>'<article class="weekly-course-card" draggable="true" data-weekly-card="'+esc(row.id)+'"><div class="drag-handle" title="拖曳到其他星期">⠿</div><div class="weekly-course-fields"><b>'+esc(config.items.find(i=>i.id===row.itemId)?.name||row.areaCode||"未指定區域")+'</b><span>'+esc(row.start)+'–'+esc(row.end)+'</span><span>'+esc(row.title||"（未填課程）")+'</span></div><div class="weekly-course-actions"><button type="button" class="secondary" data-weekly-edit="'+esc(row.id)+'">編輯</button><button type="button" class="secondary" data-weekly-copy="'+esc(row.id)+'">複製</button><button type="button" class="danger" data-weekly-delete="'+esc(row.id)+'">刪除</button></div></article>').join(""):'<p class="week-day-empty">拖曳課程到這裡，或從上方新增。</p>')+'</section>';
+        return '<section class="week-day-column" data-drop-weekday="'+day.value+'"><div class="week-day-header"><h4>'+day.label+' <span>'+dayRows.length+' 格</span></h4><button type="button" class="danger weekly-clear-day" data-clear-weekday="'+day.value+'">清空這天</button></div>'+
+          (dayRows.length?dayRows.map(row=>'<article class="weekly-course-card" draggable="true" data-weekly-card="'+esc(row.id)+'"><div class="drag-handle" title="拖曳到其他星期">⠿</div><div class="weekly-course-fields"><b>'+esc(config.items.find(i=>i.id===row.itemId)?.name||row.areaCode||"未指定區域")+'</b><span>'+esc(row.start)+'–'+esc(row.end)+'</span><span>'+esc(row.title||"（未填課程）")+'</span></div><div class="weekly-course-actions"><button type="button" class="secondary" data-weekly-edit="'+esc(row.id)+'">編輯</button><button type="button" class="secondary" data-weekly-copy="'+esc(row.id)+'">複製</button><button type="button" class="danger" data-weekly-delete="'+esc(row.id)+'">刪除</button></div></article>').join(""):'<p class="week-day-empty">沒有課程</p>')+'</section>';
       }).join("")+'</div>';
     const resetWeekly=()=>{
       $("#weeklyEditId").value="";$("#weeklyDay").value="1";$("#weeklyRoom").value=config.items.find(i=>i.category==="booking"||i.category==="all")?.id||"";
@@ -1217,19 +1218,33 @@ async function adminSection(which){
       $("#weeklyEditId").value=row.id;$("#weeklyDay").value=String(row.weekday);$("#weeklyRoom").value=row.itemId;
       $("#weeklyStart").value=row.start;$("#weeklyEnd").value=row.end;$("#weeklyTitle").value=row.title;
       $("#weeklySave").textContent="儲存修改";feedback("weeklyMessage","正在編輯課程格；儲存後會套用到每週。");
-      $("#weeklyTitle").focus();c.scrollIntoView({behavior:"smooth",block:"start"});
+      $("#weeklyTitle").focus();
     });
     $$( "[data-weekly-copy]" ).forEach(button=>button.onclick=()=>{
       const row=rows.find(r=>r.id===button.dataset.weeklyCopy);if(!row)return;
       $("#weeklyEditId").value="";$("#weeklyDay").value=String(row.weekday);$("#weeklyRoom").value=row.itemId;
-      $("#weeklyStart").value=row.start;$("#weeklyEnd").value=row.end;$("#weeklyTitle").value=row.title+"（複製）";
-      $("#weeklySave").textContent="儲存複製格";feedback("weeklyMessage","已複製到新增表單。修改星期、區域、時段或課程，再儲存即可。");
-      $("#weeklyTitle").focus();c.scrollIntoView({behavior:"smooth",block:"start"});
+      $("#weeklyStart").value=row.start;$("#weeklyEnd").value=row.end;$("#weeklyTitle").value=row.title;
+      $("#weeklySave").textContent="儲存複製格";feedback("weeklyMessage","已複製到新增表單；可修改星期、區域、時段或課程後儲存。");
+      $("#weeklyTitle").focus();
     });
     $$( "[data-weekly-delete]" ).forEach(button=>button.onclick=async()=>{
       const row=rows.find(r=>r.id===button.dataset.weeklyDelete);if(!row||!confirm("確定刪除這個每週固定課程格？"))return;
       try{await sdk.deleteDoc(sdk.doc(db,"schedule",row.id));await adminSection("schedule");toast("課程格已刪除")}
       catch(e){toast("刪除失敗："+friendlyError(e))}
+    });
+    $$( "[data-clear-weekday]" ).forEach(button=>button.onclick=async()=>{
+      const weekday=Number(button.dataset.clearWeekday),day=weekdays.find(d=>d.value===weekday),targets=rows.filter(r=>r.weekday===weekday);
+      if(!targets.length){toast((day?.label||"這天")+"沒有課程可刪除");return}
+      if(!confirm("確定清空"+(day?.label||"這天")+"的全部 "+targets.length+" 格固定課表？其他星期不會受影響，且無法復原。"))return;
+      button.disabled=true;
+      try{
+        for(let offset=0;offset<targets.length;offset+=450){
+          const batch=sdk.writeBatch(db);
+          targets.slice(offset,offset+450).forEach(row=>batch.delete(sdk.doc(db,"schedule",row.id)));
+          await batch.commit();
+        }
+        await adminSection("schedule");toast((day?.label||"這天")+"課表已清空");
+      }catch(e){button.disabled=false;toast("清空失敗："+friendlyError(e))}
     });
     $$( "[data-weekly-card]" ).forEach(card=>{
       card.addEventListener("dragstart",event=>{event.dataTransfer.setData("text/plain",card.dataset.weeklyCard);event.dataTransfer.effectAllowed="move";card.classList.add("dragging")});
@@ -1242,12 +1257,12 @@ async function adminSection(which){
         event.preventDefault();column.classList.remove("drag-over");
         const id=event.dataTransfer.getData("text/plain"),row=rows.find(r=>r.id===id),weekday=Number(column.dataset.dropWeekday);
         if(!row||row.weekday===weekday)return;
-        try{await sdk.setDoc(sdk.doc(db,"schedule",id),{weekday,dayName:weekdays.find(d=>d.value===weekday)?.label||"",date:null,updatedAt:sdk.serverTimestamp()},{merge:true});await adminSection("schedule");toast("已移到"+(weekdays.find(d=>d.value===weekday)?.label||"指定星期"))}
+        try{await sdk.setDoc(sdk.doc(db,"schedule",id),{weekday,dayName:weekdays.find(d=>d.value===weekday)?.label||"",date:null,type:"weeklyCourse",updatedAt:sdk.serverTimestamp()},{merge:true});await adminSection("schedule");toast("已移到"+(weekdays.find(d=>d.value===weekday)?.label||"指定星期"))}
         catch(e){toast("移動失敗："+friendlyError(e))}
       });
     });
   }
-  if(which==="bookings"){
+    if(which==="bookings"){
     c.innerHTML='<div class="notice" role="status">正在讀取申請與照片資料…（若 12 秒內無回應，會顯示原因）</div>';
     const snap=await withFirestoreTimeout(sdk.getDocs(sdk.collection(db,"bookings")),"申請／照片資料讀取",12000),rows=snap.docs.map(d=>({id:d.id,...d.data()}));
     const createdMillis=value=>value?.toDate?value.toDate().getTime():(value?new Date(value).getTime():0);
