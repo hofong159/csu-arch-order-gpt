@@ -56,7 +56,7 @@ service cloud.firestore {
           'name','className','phone','borrowType','type','itemId','item',
           'date','start','hours','purpose','status','startAt','endAt',
           'endDate','endTime','lockIds','photoIds','createdAt',
-          'checkedInAt','checkedOutAt'
+          'checkedInAt','checkedOutAt','publicReservationId'
         ])
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
@@ -122,6 +122,49 @@ service cloud.firestore {
         );
         allow update, delete: if isAdmin();
       }
+    }
+
+    // Public calendar contains only room/time occupancy. It must never contain name, phone, class or lookup code.
+    match /publicBookings/{publicId} {
+      allow get, list: if true;
+      allow create: if request.resource.data.keys().hasAll([
+          'itemId','item','date','start','endDate','endTime','startAt','endAt','status','createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'itemId','item','date','start','endDate','endTime','startAt','endAt','status','createdAt'
+        ])
+        && publicId.matches('^[a-f0-9]{32}
+      allow get: if true;
+      allow list: if isAdmin();
+      allow create: if isAdmin() || (request.resource.data.keys().hasAll([
+          'bookingId','lockId','itemId','date','time','lane','status','createdAt'
+        ])
+        && request.resource.data.lockId == lockId
+        && isPublicCode(request.resource.data.bookingId)
+        && request.resource.data.lane in [0,1]
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.itemId == request.resource.data.itemId
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.lockIds.hasAny([lockId]));
+      allow update, delete: if isAdmin();
+    }
+  }
+}
+)
+        && request.resource.data.itemId is string
+        && request.resource.data.item is string
+        && request.resource.data.date is string
+        && request.resource.data.start is string
+        && request.resource.data.endDate is string
+        && request.resource.data.endTime is string
+        && request.resource.data.startAt is int
+        && request.resource.data.endAt is int
+        && request.resource.data.startAt < request.resource.data.endAt
+        && request.resource.data.status == 'pending'
+        && request.resource.data.createdAt == request.time
+        && exists(/databases/$(database)/documents/items/$(request.resource.data.itemId))
+        && get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.name == request.resource.data.item;
+      allow update, delete: if isAdmin();
     }
 
     match /reservationLocks/{lockId} {
