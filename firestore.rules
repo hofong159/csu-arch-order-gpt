@@ -50,13 +50,13 @@ service cloud.firestore {
           'name','className','phone','borrowType','type','itemId','item',
           'date','start','hours','purpose','status','startAt','endAt',
           'endDate','endTime','lockIds','photoIds','createdAt',
-          'checkedInAt','checkedOutAt'
+          'checkedInAt','checkedOutAt','lookupCode'
         ])
         && request.resource.data.keys().hasOnly([
           'name','className','phone','borrowType','type','itemId','item',
           'date','start','hours','purpose','status','startAt','endAt',
           'endDate','endTime','lockIds','photoIds','createdAt',
-          'checkedInAt','checkedOutAt','publicReservationId'
+          'checkedInAt','checkedOutAt','publicReservationId','lookupCode'
         ])
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
@@ -72,6 +72,531 @@ service cloud.firestore {
         && request.resource.data.date is string
         && request.resource.data.start is string
         && request.resource.data.hours in [3,6]
+        && request.resource.data.lookupCode is string
+        && request.resource.data.lookupCode.matches('^[0-9]{5}
+        && request.resource.data.lockIds is list
+        && request.resource.data.lockIds.size() in [6,12]
+        && request.resource.data.photoIds is list
+        && request.resource.data.photoIds.size() == 0
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.checkedInAt == null
+        && request.resource.data.checkedOutAt == null);
+
+      allow update: if isAdmin() ||
+        (
+          isPublicCode(code) &&
+          resource.data.status == 'approved' &&
+          resource.data.checkedInAt == null &&
+          resource.data.checkedOutAt == null &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checkedInAt']) &&
+          request.resource.data.checkedInAt == request.time
+        ) ||
+        (
+          isPublicCode(code) &&
+          resource.data.status == 'approved' &&
+          resource.data.checkedInAt != null &&
+          resource.data.checkedOutAt == null &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checkedOutAt','photoIds']) &&
+          request.resource.data.checkedOutAt == request.time &&
+          request.resource.data.photoIds is list &&
+          request.resource.data.photoIds.size() <= 5
+        );
+
+      allow delete: if isAdmin();
+
+      match /photos/{photoId} {
+        // The 128-bit booking code acts as the student's private access key.
+        allow get, list: if isAdmin() || isPublicCode(code);
+        allow create: if isAdmin() || (
+          isPublicCode(code)
+          && request.resource.data.keys().hasOnly(['dataUrl','name','contentType','createdAt','importedLegacyPhoto'])
+          && request.resource.data.dataUrl is string
+          && request.resource.data.dataUrl.size() < 700000
+          && request.resource.data.dataUrl.matches('^data:image/jpeg;base64,.*$')
+          && request.resource.data.contentType == 'image/jpeg'
+          && request.resource.data.createdAt == request.time
+          && get(/databases/$(database)/documents/bookings/$(code)).data.status == 'approved'
+          && get(/databases/$(database)/documents/bookings/$(code)).data.checkedInAt != null
+          && get(/databases/$(database)/documents/bookings/$(code)).data.checkedOutAt == null
+          && getAfter(/databases/$(database)/documents/bookings/$(code)).data.checkedOutAt == request.time
+          && getAfter(/databases/$(database)/documents/bookings/$(code)).data.photoIds.hasAny([photoId])
+        );
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    // Five-digit lookup codes are paired with the applicant's normalized phone number.
+    // The client hashes that pair to a document ID; only an exact get is public, never collection listing.
+    match /bookingLookups/{lookupId} {
+      allow get: if isAdmin() || lookupId.matches('^[a-f0-9]{64}
+      allow get, list: if true;
+      allow create: if request.resource.data.keys().hasAll([
+          'itemId','item','date','start','endDate','endTime','startAt','endAt','status','createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'itemId','item','date','start','endDate','endTime','startAt','endAt','status','createdAt'
+        ])
+        && publicId.matches('^[a-f0-9]{32}$')
+        && request.resource.data.itemId is string
+        && request.resource.data.item is string
+        && request.resource.data.date is string
+        && request.resource.data.start is string
+        && request.resource.data.endDate is string
+        && request.resource.data.endTime is string
+        && request.resource.data.startAt is int
+        && request.resource.data.endAt is int
+        && request.resource.data.startAt < request.resource.data.endAt
+        && (isAdmin() || (request.resource.data.status == 'pending' && request.resource.data.createdAt == request.time))
+        && exists(/databases/$(database)/documents/items/$(request.resource.data.itemId))
+        && get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.name == request.resource.data.item;
+      allow update, delete: if isAdmin();
+    }
+
+    match /reservationLocks/{lockId} {
+      allow get: if true;
+      allow list: if isAdmin();
+      allow create: if isAdmin() || (request.resource.data.keys().hasAll([
+          'bookingId','lockId','itemId','date','time','lane','status','createdAt'
+        ])
+        && request.resource.data.lockId == lockId
+        && isPublicCode(request.resource.data.bookingId)
+        && request.resource.data.lane in [0,1]
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.itemId == request.resource.data.itemId
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.lockIds.hasAny([lockId]));
+      allow update, delete: if isAdmin();
+    }
+  }
+}
+)
+        && request.resource.data.status == 'pending'
+        && request.resource.data.lockIds is list
+        && request.resource.data.lockIds.size() in [6,12]
+        && request.resource.data.photoIds is list
+        && request.resource.data.photoIds.size() == 0
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.checkedInAt == null
+        && request.resource.data.checkedOutAt == null);
+
+      allow update: if isAdmin() ||
+        (
+          isPublicCode(code) &&
+          resource.data.status == 'approved' &&
+          resource.data.checkedInAt == null &&
+          resource.data.checkedOutAt == null &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checkedInAt']) &&
+          request.resource.data.checkedInAt == request.time
+        ) ||
+        (
+          isPublicCode(code) &&
+          resource.data.status == 'approved' &&
+          resource.data.checkedInAt != null &&
+          resource.data.checkedOutAt == null &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checkedOutAt','photoIds']) &&
+          request.resource.data.checkedOutAt == request.time &&
+          request.resource.data.photoIds is list &&
+          request.resource.data.photoIds.size() <= 5
+        );
+
+      allow delete: if isAdmin();
+
+      match /photos/{photoId} {
+        // The 128-bit booking code acts as the student's private access key.
+        allow get, list: if isAdmin() || isPublicCode(code);
+        allow create: if isAdmin() || (
+          isPublicCode(code)
+          && request.resource.data.keys().hasOnly(['dataUrl','name','contentType','createdAt','importedLegacyPhoto'])
+          && request.resource.data.dataUrl is string
+          && request.resource.data.dataUrl.size() < 700000
+          && request.resource.data.dataUrl.matches('^data:image/jpeg;base64,.*$')
+          && request.resource.data.contentType == 'image/jpeg'
+          && request.resource.data.createdAt == request.time
+          && get(/databases/$(database)/documents/bookings/$(code)).data.status == 'approved'
+          && get(/databases/$(database)/documents/bookings/$(code)).data.checkedInAt != null
+          && get(/databases/$(database)/documents/bookings/$(code)).data.checkedOutAt == null
+          && getAfter(/databases/$(database)/documents/bookings/$(code)).data.checkedOutAt == request.time
+          && getAfter(/databases/$(database)/documents/bookings/$(code)).data.photoIds.hasAny([photoId])
+        );
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    // Public calendar contains only room/time occupancy. Never store names, phone numbers, or lookup codes here.
+    match /publicBookings/{publicId} {
+      allow get, list: if true;
+      allow create: if request.resource.data.keys().hasAll([
+          'itemId','item','date','start','endDate','endTime','startAt','endAt','status','createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'itemId','item','date','start','endDate','endTime','startAt','endAt','status','createdAt'
+        ])
+        && publicId.matches('^[a-f0-9]{32}$')
+        && request.resource.data.itemId is string
+        && request.resource.data.item is string
+        && request.resource.data.date is string
+        && request.resource.data.start is string
+        && request.resource.data.endDate is string
+        && request.resource.data.endTime is string
+        && request.resource.data.startAt is int
+        && request.resource.data.endAt is int
+        && request.resource.data.startAt < request.resource.data.endAt
+        && (isAdmin() || (request.resource.data.status == 'pending' && request.resource.data.createdAt == request.time))
+        && exists(/databases/$(database)/documents/items/$(request.resource.data.itemId))
+        && get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.name == request.resource.data.item;
+      allow update, delete: if isAdmin();
+    }
+
+    match /reservationLocks/{lockId} {
+      allow get: if true;
+      allow list: if isAdmin();
+      allow create: if isAdmin() || (request.resource.data.keys().hasAll([
+          'bookingId','lockId','itemId','date','time','lane','status','createdAt'
+        ])
+        && request.resource.data.lockId == lockId
+        && isPublicCode(request.resource.data.bookingId)
+        && request.resource.data.lane in [0,1]
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.itemId == request.resource.data.itemId
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.lockIds.hasAny([lockId]));
+      allow update, delete: if isAdmin();
+    }
+  }
+}
+);
+      allow list: if isAdmin();
+      allow create: if isAdmin() || (
+        lookupId.matches('^[a-f0-9]{64}
+      allow get, list: if true;
+      allow create: if request.resource.data.keys().hasAll([
+          'itemId','item','date','start','endDate','endTime','startAt','endAt','status','createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'itemId','item','date','start','endDate','endTime','startAt','endAt','status','createdAt'
+        ])
+        && publicId.matches('^[a-f0-9]{32}$')
+        && request.resource.data.itemId is string
+        && request.resource.data.item is string
+        && request.resource.data.date is string
+        && request.resource.data.start is string
+        && request.resource.data.endDate is string
+        && request.resource.data.endTime is string
+        && request.resource.data.startAt is int
+        && request.resource.data.endAt is int
+        && request.resource.data.startAt < request.resource.data.endAt
+        && (isAdmin() || (request.resource.data.status == 'pending' && request.resource.data.createdAt == request.time))
+        && exists(/databases/$(database)/documents/items/$(request.resource.data.itemId))
+        && get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.name == request.resource.data.item;
+      allow update, delete: if isAdmin();
+    }
+
+    match /reservationLocks/{lockId} {
+      allow get: if true;
+      allow list: if isAdmin();
+      allow create: if isAdmin() || (request.resource.data.keys().hasAll([
+          'bookingId','lockId','itemId','date','time','lane','status','createdAt'
+        ])
+        && request.resource.data.lockId == lockId
+        && isPublicCode(request.resource.data.bookingId)
+        && request.resource.data.lane in [0,1]
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.itemId == request.resource.data.itemId
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.lockIds.hasAny([lockId]));
+      allow update, delete: if isAdmin();
+    }
+  }
+}
+)
+        && request.resource.data.status == 'pending'
+        && request.resource.data.lockIds is list
+        && request.resource.data.lockIds.size() in [6,12]
+        && request.resource.data.photoIds is list
+        && request.resource.data.photoIds.size() == 0
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.checkedInAt == null
+        && request.resource.data.checkedOutAt == null);
+
+      allow update: if isAdmin() ||
+        (
+          isPublicCode(code) &&
+          resource.data.status == 'approved' &&
+          resource.data.checkedInAt == null &&
+          resource.data.checkedOutAt == null &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checkedInAt']) &&
+          request.resource.data.checkedInAt == request.time
+        ) ||
+        (
+          isPublicCode(code) &&
+          resource.data.status == 'approved' &&
+          resource.data.checkedInAt != null &&
+          resource.data.checkedOutAt == null &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checkedOutAt','photoIds']) &&
+          request.resource.data.checkedOutAt == request.time &&
+          request.resource.data.photoIds is list &&
+          request.resource.data.photoIds.size() <= 5
+        );
+
+      allow delete: if isAdmin();
+
+      match /photos/{photoId} {
+        // The 128-bit booking code acts as the student's private access key.
+        allow get, list: if isAdmin() || isPublicCode(code);
+        allow create: if isAdmin() || (
+          isPublicCode(code)
+          && request.resource.data.keys().hasOnly(['dataUrl','name','contentType','createdAt','importedLegacyPhoto'])
+          && request.resource.data.dataUrl is string
+          && request.resource.data.dataUrl.size() < 700000
+          && request.resource.data.dataUrl.matches('^data:image/jpeg;base64,.*$')
+          && request.resource.data.contentType == 'image/jpeg'
+          && request.resource.data.createdAt == request.time
+          && get(/databases/$(database)/documents/bookings/$(code)).data.status == 'approved'
+          && get(/databases/$(database)/documents/bookings/$(code)).data.checkedInAt != null
+          && get(/databases/$(database)/documents/bookings/$(code)).data.checkedOutAt == null
+          && getAfter(/databases/$(database)/documents/bookings/$(code)).data.checkedOutAt == request.time
+          && getAfter(/databases/$(database)/documents/bookings/$(code)).data.photoIds.hasAny([photoId])
+        );
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    // Public calendar contains only room/time occupancy. Never store names, phone numbers, or lookup codes here.
+    match /publicBookings/{publicId} {
+      allow get, list: if true;
+      allow create: if request.resource.data.keys().hasAll([
+          'itemId','item','date','start','endDate','endTime','startAt','endAt','status','createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'itemId','item','date','start','endDate','endTime','startAt','endAt','status','createdAt'
+        ])
+        && publicId.matches('^[a-f0-9]{32}$')
+        && request.resource.data.itemId is string
+        && request.resource.data.item is string
+        && request.resource.data.date is string
+        && request.resource.data.start is string
+        && request.resource.data.endDate is string
+        && request.resource.data.endTime is string
+        && request.resource.data.startAt is int
+        && request.resource.data.endAt is int
+        && request.resource.data.startAt < request.resource.data.endAt
+        && (isAdmin() || (request.resource.data.status == 'pending' && request.resource.data.createdAt == request.time))
+        && exists(/databases/$(database)/documents/items/$(request.resource.data.itemId))
+        && get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.name == request.resource.data.item;
+      allow update, delete: if isAdmin();
+    }
+
+    match /reservationLocks/{lockId} {
+      allow get: if true;
+      allow list: if isAdmin();
+      allow create: if isAdmin() || (request.resource.data.keys().hasAll([
+          'bookingId','lockId','itemId','date','time','lane','status','createdAt'
+        ])
+        && request.resource.data.lockId == lockId
+        && isPublicCode(request.resource.data.bookingId)
+        && request.resource.data.lane in [0,1]
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.itemId == request.resource.data.itemId
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.lockIds.hasAny([lockId]));
+      allow update, delete: if isAdmin();
+    }
+  }
+}
+)
+        && request.resource.data.keys().hasAll(['bookingId','createdAt'])
+        && request.resource.data.keys().hasOnly(['bookingId','createdAt'])
+        && request.resource.data.bookingId is string
+        && isPublicCode(request.resource.data.bookingId)
+        && request.resource.data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.phone is string
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.status == 'pending'
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.lookupCode is string
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.lookupCode.matches('^[0-9]{5}
+      allow get, list: if true;
+      allow create: if request.resource.data.keys().hasAll([
+          'itemId','item','date','start','endDate','endTime','startAt','endAt','status','createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'itemId','item','date','start','endDate','endTime','startAt','endAt','status','createdAt'
+        ])
+        && publicId.matches('^[a-f0-9]{32}$')
+        && request.resource.data.itemId is string
+        && request.resource.data.item is string
+        && request.resource.data.date is string
+        && request.resource.data.start is string
+        && request.resource.data.endDate is string
+        && request.resource.data.endTime is string
+        && request.resource.data.startAt is int
+        && request.resource.data.endAt is int
+        && request.resource.data.startAt < request.resource.data.endAt
+        && (isAdmin() || (request.resource.data.status == 'pending' && request.resource.data.createdAt == request.time))
+        && exists(/databases/$(database)/documents/items/$(request.resource.data.itemId))
+        && get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.name == request.resource.data.item;
+      allow update, delete: if isAdmin();
+    }
+
+    match /reservationLocks/{lockId} {
+      allow get: if true;
+      allow list: if isAdmin();
+      allow create: if isAdmin() || (request.resource.data.keys().hasAll([
+          'bookingId','lockId','itemId','date','time','lane','status','createdAt'
+        ])
+        && request.resource.data.lockId == lockId
+        && isPublicCode(request.resource.data.bookingId)
+        && request.resource.data.lane in [0,1]
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.itemId == request.resource.data.itemId
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.lockIds.hasAny([lockId]));
+      allow update, delete: if isAdmin();
+    }
+  }
+}
+)
+        && request.resource.data.status == 'pending'
+        && request.resource.data.lockIds is list
+        && request.resource.data.lockIds.size() in [6,12]
+        && request.resource.data.photoIds is list
+        && request.resource.data.photoIds.size() == 0
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.checkedInAt == null
+        && request.resource.data.checkedOutAt == null);
+
+      allow update: if isAdmin() ||
+        (
+          isPublicCode(code) &&
+          resource.data.status == 'approved' &&
+          resource.data.checkedInAt == null &&
+          resource.data.checkedOutAt == null &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checkedInAt']) &&
+          request.resource.data.checkedInAt == request.time
+        ) ||
+        (
+          isPublicCode(code) &&
+          resource.data.status == 'approved' &&
+          resource.data.checkedInAt != null &&
+          resource.data.checkedOutAt == null &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checkedOutAt','photoIds']) &&
+          request.resource.data.checkedOutAt == request.time &&
+          request.resource.data.photoIds is list &&
+          request.resource.data.photoIds.size() <= 5
+        );
+
+      allow delete: if isAdmin();
+
+      match /photos/{photoId} {
+        // The 128-bit booking code acts as the student's private access key.
+        allow get, list: if isAdmin() || isPublicCode(code);
+        allow create: if isAdmin() || (
+          isPublicCode(code)
+          && request.resource.data.keys().hasOnly(['dataUrl','name','contentType','createdAt','importedLegacyPhoto'])
+          && request.resource.data.dataUrl is string
+          && request.resource.data.dataUrl.size() < 700000
+          && request.resource.data.dataUrl.matches('^data:image/jpeg;base64,.*$')
+          && request.resource.data.contentType == 'image/jpeg'
+          && request.resource.data.createdAt == request.time
+          && get(/databases/$(database)/documents/bookings/$(code)).data.status == 'approved'
+          && get(/databases/$(database)/documents/bookings/$(code)).data.checkedInAt != null
+          && get(/databases/$(database)/documents/bookings/$(code)).data.checkedOutAt == null
+          && getAfter(/databases/$(database)/documents/bookings/$(code)).data.checkedOutAt == request.time
+          && getAfter(/databases/$(database)/documents/bookings/$(code)).data.photoIds.hasAny([photoId])
+        );
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    // Public calendar contains only room/time occupancy. Never store names, phone numbers, or lookup codes here.
+    match /publicBookings/{publicId} {
+      allow get, list: if true;
+      allow create: if request.resource.data.keys().hasAll([
+          'itemId','item','date','start','endDate','endTime','startAt','endAt','status','createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'itemId','item','date','start','endDate','endTime','startAt','endAt','status','createdAt'
+        ])
+        && publicId.matches('^[a-f0-9]{32}$')
+        && request.resource.data.itemId is string
+        && request.resource.data.item is string
+        && request.resource.data.date is string
+        && request.resource.data.start is string
+        && request.resource.data.endDate is string
+        && request.resource.data.endTime is string
+        && request.resource.data.startAt is int
+        && request.resource.data.endAt is int
+        && request.resource.data.startAt < request.resource.data.endAt
+        && (isAdmin() || (request.resource.data.status == 'pending' && request.resource.data.createdAt == request.time))
+        && exists(/databases/$(database)/documents/items/$(request.resource.data.itemId))
+        && get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.name == request.resource.data.item;
+      allow update, delete: if isAdmin();
+    }
+
+    match /reservationLocks/{lockId} {
+      allow get: if true;
+      allow list: if isAdmin();
+      allow create: if isAdmin() || (request.resource.data.keys().hasAll([
+          'bookingId','lockId','itemId','date','time','lane','status','createdAt'
+        ])
+        && request.resource.data.lockId == lockId
+        && isPublicCode(request.resource.data.bookingId)
+        && request.resource.data.lane in [0,1]
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.itemId == request.resource.data.itemId
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.lockIds.hasAny([lockId]));
+      allow update, delete: if isAdmin();
+    }
+  }
+}
+)
+      );
+      allow update, delete: if isAdmin();
+    }
+
+    // Public calendar contains only room/time occupancy. Never store names, phone numbers, or lookup codes here.
+    match /publicBookings/{publicId} {
+      allow get, list: if true;
+      allow create: if request.resource.data.keys().hasAll([
+          'itemId','item','date','start','endDate','endTime','startAt','endAt','status','createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'itemId','item','date','start','endDate','endTime','startAt','endAt','status','createdAt'
+        ])
+        && publicId.matches('^[a-f0-9]{32}$')
+        && request.resource.data.itemId is string
+        && request.resource.data.item is string
+        && request.resource.data.date is string
+        && request.resource.data.start is string
+        && request.resource.data.endDate is string
+        && request.resource.data.endTime is string
+        && request.resource.data.startAt is int
+        && request.resource.data.endAt is int
+        && request.resource.data.startAt < request.resource.data.endAt
+        && (isAdmin() || (request.resource.data.status == 'pending' && request.resource.data.createdAt == request.time))
+        && exists(/databases/$(database)/documents/items/$(request.resource.data.itemId))
+        && get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.name == request.resource.data.item;
+      allow update, delete: if isAdmin();
+    }
+
+    match /reservationLocks/{lockId} {
+      allow get: if true;
+      allow list: if isAdmin();
+      allow create: if isAdmin() || (request.resource.data.keys().hasAll([
+          'bookingId','lockId','itemId','date','time','lane','status','createdAt'
+        ])
+        && request.resource.data.lockId == lockId
+        && isPublicCode(request.resource.data.bookingId)
+        && request.resource.data.lane in [0,1]
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.itemId == request.resource.data.itemId
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.lockIds.hasAny([lockId]));
+      allow update, delete: if isAdmin();
+    }
+  }
+}
+)
         && request.resource.data.status == 'pending'
         && request.resource.data.lockIds is list
         && request.resource.data.lockIds.size() in [6,12]
