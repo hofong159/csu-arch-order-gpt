@@ -162,8 +162,10 @@ async function loadConfig(){
 }
 function requestForm(type,title){
   const available=getItems(type), workshop=["micro","output"].includes(type);
+  const board=type==="booking"?'<section class="item public-week-board"><div class="week-board-heading"><div><h2>本週課表與預約狀況</h2><p class="muted">固定課表每週自動重複；橘色代表已有申請或預約。只顯示教室與時段，不公開個人資料。</p></div><button type="button" id="refreshWeekBoard" class="secondary">重新整理</button></div><div id="publicWeekBoard" aria-live="polite"><p class="muted">正在載入整週課表…</p></div></section>':"";
   return '<h2>'+esc(title)+'</h2><p class="muted">學生免登入，直接填表申請。送出後請保存查詢碼，之後使用手機號碼＋查詢碼查詢、簽到及簽退。</p>'+
     (available.length?"":'<div class="notice">目前尚未建立此分類的空間／設備，請管理員先新增項目。</div>')+
+    board+
     '<form id="requestForm"><div class="grid">'+
     '<label class="field">姓名 *<input id="personName" required maxlength="60"></label>'+
     '<label class="field">班級／單位 *<input id="className" required maxlength="80" placeholder="例如：建築四甲"></label>'+
@@ -173,12 +175,12 @@ function requestForm(type,title){
     '<label class="field">開始日期 *<input id="date" type="date" value="'+today()+'" min="'+today()+'" required></label>'+
     '<label class="field">開始時間 *<select id="start" required>'+timeOptions()+'</select></label>'+
     '<label class="field">借用時數（小時）*<input id="hours" type="number" inputmode="decimal" min="3" max="6" step="3" value="3" required placeholder="輸入 3 或 6"></label></div>'+
+    '<p class="muted">借用時數請直接輸入 3 或 6 小時。</p>'+
     '<label class="field">用途／備註<textarea id="purpose" maxlength="1000" placeholder="簡述使用目的、材料或設備需求"></textarea></label>'+
     (workshop?'<h3>使用規範與注意事項</h3><div class="rule">'+esc(config.rules[type]||defaultRules[type])+'</div><label class="check"><input id="agreeRules" type="checkbox"><span>我已閱讀並同意遵守上述規範。</span></label>':"")+
     '<label class="check"><input id="agree" type="checkbox"><span>我會對本人／全組使用負責，離場前清潔復原並完成簽退；簽退時需上傳現況照片。</span></label>'+
-    '<div class="notice">'+esc(config.settings.notice||"原站規則：起始時間每 30 分鐘一格；借用時數以 3 小時為倍數，建議不超過 6 小時。夜間 19:00 至翌日 08:00 須在 19:00 前登記；寒暑假開放情況依管理員公告。21:30 現場無人將鎖門。")+'</div>'+
-    '<p id="requestMessage" class="feedback" role="status"></p><div id="receipt" class="notice hidden"></div><button class="primary full" type="submit" '+(available.length?"":"disabled")+'>送出申請</button></form>'+
-    (type==="booking"?'<section class="item public-course-board"><h2>所選日期的正課課表</h2><p class="muted">依所選日期顯示已匯入的正課；個人預約不公開姓名，預約容量會在送出申請前再檢查。</p><label class="field">查看日期<input id="publicCourseDate" type="date" value="'+today()+'"></label><div id="publicCourseRows" aria-live="polite"><p class="muted">正在載入課表…</p></div></section>':"");
+    '<div class="notice">'+esc(config.settings.notice||"原站規則：起始時間每 30 分鐘一格；借用時間以 3 小時為倍數，建議不超過 6 小時。夜間 19:00 至翌日 08:00 須在 19:00 前登記；寒暑假開放情況依管理員公告。21:30 現場無人將鎖門。")+'</div>'+
+    '<p id="requestMessage" class="feedback" role="status"></p><div id="receipt" class="notice hidden"></div><button class="primary full" type="submit" '+(available.length?"":"disabled")+'>送出申請</button></form>';
 }
 function render(){
   $$(".tab").forEach(b=>b.classList.toggle("active",b.dataset.view===currentView));
@@ -196,28 +198,56 @@ function render(){
     $("#lookupBtn").onclick=loadMine;
   }
   const f=$("#requestForm");if(f)f.onsubmit=submitRequest;
-  const publicCourseDate=$("#publicCourseDate");
-  if(publicCourseDate){
-    publicCourseDate.onchange=loadPublicCourseBoard;
-    if(db)loadPublicCourseBoard();else $("#publicCourseRows").innerHTML='<p class="muted">連線後會顯示課表。</p>';
+  if($("#publicWeekBoard")){
+    $("#refreshWeekBoard")?.addEventListener("click",loadPublicWeeklyBoard);
+    if(db)loadPublicWeeklyBoard();else $("#publicWeekBoard").innerHTML='<p class="muted">Firebase 連線後會顯示課表。</p>';
   }
 }
-async function loadPublicCourseBoard(){
-  const panel=$("#publicCourseRows"),date=$("#publicCourseDate")?.value;
-  if(!panel||!date||!db)return;
-  panel.innerHTML='<p class="muted">正在讀取 '+esc(date)+' 的課表…</p>';
+async function loadPublicWeeklyBoard(){
+  const board=$("#publicWeekBoard");if(!board||!db)return;
+  board.innerHTML='<p class="muted">正在讀取固定課表與預約時段…</p>';
   try{
-    const snap=await sdk.getDocs(sdk.query(sdk.collection(db,"schedule"),sdk.where("date","==",date)));
-    const rows=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>String(a.start||"").localeCompare(String(b.start||"")));
-    if(!rows.length){panel.innerHTML='<p class="muted">這一天尚無課表資料。管理員可在「管理員後台 → 課表」匯入舊課表。</p>';return}
-    const itemName=id=>config.items.find(i=>i.id===id)?.name||"";
-    panel.innerHTML='<div class="table-wrap"><table><thead><tr><th>區域／空間</th><th>時間</th><th>正課／內容</th></tr></thead><tbody>'+
-      rows.map(r=>'<tr><td>'+esc(r.itemId?itemName(r.itemId)||r.areaCode||"指定空間":r.areaCode?(String(r.areaCode).endsWith("區")?r.areaCode:r.areaCode+"區"):"全域占用")+'</td><td>'+esc(r.start||"")+"–"+esc(r.end||"")+'</td><td>'+esc(r.title||r.label||"課表占用")+'</td></tr>').join("")+
-      '</tbody></table></div>';
+    const courseResult=await sdk.getDocs(sdk.collection(db,"schedule"));
+    let bookings=[],bookingReadError=null;
+    try{
+      const bookingSnap=await sdk.getDocs(sdk.collection(db,"publicBookings"));
+      bookings=bookingSnap.docs.map(d=>({id:d.id,...d.data()})).filter(b=>["pending","approved"].includes(b.status));
+    }catch(e){bookingReadError=e;console.warn("Public booking occupancy read failed",e)}
+    const courses=courseResult.docs.map(normalizeCourseDocument).filter(Boolean);
+    const monday=new Date(today()+"T12:00:00");monday.setDate(monday.getDate()-(monday.getDay()+6)%7);
+    const week=Array.from({length:7},(_,i)=>{
+      const date=new Date(monday);date.setDate(monday.getDate()+i);
+      return {weekday:date.getDay(),date:localDate(date),label:["日","一","二","三","四","五","六"][date.getDay()]};
+    });
+    const rooms=config.items.filter(i=>i.category==="booking"||i.category==="all").sort((a,b)=>String(a.areaCode||a.name).localeCompare(String(b.areaCode||b.name),"zh-Hant"));
+    if(!rooms.length){board.innerHTML='<div class="notice">尚未建立可預約教室。管理員請到「空間／設備」新增教室。</div>';return}
+    board.innerHTML='<div class="week-range">顯示 '+esc(week[0].date)+' 至 '+esc(week[6].date)+' · 每週固定課表＋本週預約</div>'+
+      (bookingReadError?'<p class="feedback error">固定課表可以顯示，但已預約時段尚無法讀取。請管理員將最新版 firestore.rules 發布到 Firebase。</p>':"")+
+      '<div class="public-room-grid">'+rooms.map(room=>{
+        const roomCourses=courses.filter(c=>c.itemId===room.id||(!c.itemId&&areaKey(c.areaCode)===areaKey(room.areaCode||room.name)));
+        const roomBookings=bookings.filter(b=>b.itemId===room.id);
+        return '<article class="public-room-card"><h3>'+esc(room.name)+'</h3><div class="public-room-days">'+week.map(day=>{
+          const items=roomCourses.filter(c=>c.weekday===day.weekday).map(c=>({kind:"course",start:c.start,end:c.end,title:c.title||"正課"}));
+          const dayStart=startOfLocalDay(day.date),dayEnd=dayStart+86400000;
+          roomBookings.filter(b=>{
+            const start=Number(b.startAt)||startOfLocalDay(b.date||day.date);
+            const end=Number(b.endAt)||startOfLocalDay(b.endDate||b.date||day.date)+86400000;
+            return start<dayEnd&&end>dayStart;
+          }).forEach(b=>{
+            const st=Number(b.startAt)?new Date(Number(b.startAt)):dateTime(b.date,b.start||"00:00");
+            const en=Number(b.endAt)?new Date(Number(b.endAt)):dateTime(b.endDate||b.date,b.endTime||"23:59");
+            items.push({kind:"booking",start:localDate(st)===day.date?fmt(st):"00:00",end:localDate(en)===day.date?fmt(en):"24:00"});
+          });
+          items.sort((a,b)=>a.start.localeCompare(b.start));
+          return '<section class="public-day"><div class="public-day-title"><b>週'+day.label+'</b><span>'+day.date.slice(5)+'</span></div>'+
+            (items.length?items.map(item=>'<div class="'+(item.kind==="booking"?"public-booked":"public-course")+'"><b>'+(item.kind==="booking"?"預約中":"正課")+'</b><span>'+esc(item.start)+'–'+esc(item.end)+'</span>'+(item.kind==="course"?'<span class="public-course-title">'+esc(item.title)+'</span>':'')+'</div>').join(""):'<div class="public-empty">無課／無預約</div>')+'</section>';
+        }).join("")+'</div></article>';
+      }).join("")+'</div>';
   }catch(e){
-    panel.innerHTML='<p class="feedback error">課表讀取失敗：'+esc(friendlyError(e))+'。請確認 Firestore Rules 已發布，且 schedule 資料讀取規則允許公開讀取。</p>';
+    board.innerHTML='<div class="feedback error">固定課表載入失敗：'+esc(friendlyError(e))+'。請確認 Firestore Rules 允許公開讀取 schedule。</div>';
   }
 }
+
 function intersect(a,b,c,d){return a<d&&b>c}
 function stableHash(value){
   let h=2166136261;
