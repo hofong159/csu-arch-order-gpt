@@ -407,6 +407,29 @@ function scheduleRowsFromText(text,defaultDate){
 function weekDays(){
   return [{value:1,label:"星期一"},{value:2,label:"星期二"},{value:3,label:"星期三"},{value:4,label:"星期四"},{value:5,label:"星期五"},{value:6,label:"星期六"},{value:0,label:"星期日"}];
 }
+function hasExplicitCourseWeekday(course){
+  const candidates=[course.weekday,course.dayOfWeek,course.weekDay,course.day_of_week];
+  for(const raw of candidates){
+    if(raw===undefined||raw===null||raw==="")continue;
+    if(Number.isInteger(Number(raw))&&Number(raw)>=0&&Number(raw)<=6)return true;
+    const text=String(raw).trim().toLowerCase();
+    if(["星期日","週日","週天","周日","周天","星期天","sunday","sun","日",
+        "星期一","週一","周一","monday","mon","一",
+        "星期二","週二","周二","tuesday","tue","二",
+        "星期三","週三","周三","wednesday","wed","三",
+        "星期四","週四","周四","thursday","thu","四",
+        "星期五","週五","周五","friday","fri","五",
+        "星期六","週六","周六","saturday","sat","六"].some(name=>text===name||text.includes(name)))return true;
+  }
+  const name=String(course.dayName??course.weekdayName??course.day??course.weekDayName??"").trim().toLowerCase();
+  return ["星期日","週日","週天","周日","周天","星期天","sunday","sun","日",
+    "星期一","週一","周一","monday","mon","一",
+    "星期二","週二","周二","tuesday","tue","二",
+    "星期三","週三","周三","wednesday","wed","三",
+    "星期四","週四","周四","thursday","thu","四",
+    "星期五","週五","周五","friday","fri","五",
+    "星期六","週六","周六","saturday","sat","六"].some(namePart=>name===namePart||name.includes(namePart));
+}
 function getCourseWeekday(course){
   const raw=course.weekday??course.dayOfWeek??course.weekDay??course.day_of_week;
   if(raw!==undefined&&raw!==null&&raw!==""&&Number.isInteger(Number(raw))&&Number(raw)>=0&&Number(raw)<=6)return Number(raw);
@@ -1173,26 +1196,51 @@ async function adminSection(which){
   }
   if(which==="schedule"){
     const allSnap=await withFirestoreTimeout(sdk.getDocs(sdk.collection(db,"schedule")),"固定課表讀取",12000);
-    const rows=allSnap.docs.map(normalizeCourseDocument).filter(Boolean).sort((a,b)=>{
+    const rawDocs=allSnap.docs.map(doc=>({id:doc.id,...doc.data()}));
+    const rows=allSnap.docs.filter(doc=>hasExplicitCourseWeekday(doc.data())).map(normalizeCourseDocument).filter(Boolean).sort((a,b)=>{
       const rank=w=>w===0?7:w;
       return rank(a.weekday)-rank(b.weekday)||String(a.start).localeCompare(String(b.start))||String(a.areaCode).localeCompare(String(b.areaCode));
     });
+    const legacyRows=allSnap.docs.filter(doc=>!hasExplicitCourseWeekday(doc.data())&&doc.data().date).map(normalizeCourseDocument).filter(Boolean).sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.start).localeCompare(String(b.start)));
     const weekdays=weekDays();
     const roomOptions='<option value="">請選擇區域</option>'+config.items.filter(i=>i.category==="booking"||i.category==="all").map(i=>'<option value="'+esc(i.id)+'">'+esc(i.name)+'</option>').join("");
-    c.innerHTML='<h3>每週固定課表</h3><p class="muted">每學期設定一次即可；不用填日期、不用每週重複新增。卡片可拖曳到正確星期，也可編輯、複製。舊資料如果只有日期而沒有星期，請拖到正確星期，存檔後就會固定每週顯示。</p>'+
-      '<details class="weekly-editor-details" open><summary>新增／編輯課程格</summary><div class="weekly-editor">'+
+    c.innerHTML='<h3>每週固定課表</h3><p class="muted">只顯示已設定固定星期的課程。舊資料若只有日期，請先在下方「舊日期課表」指定真正上課的星期；指定後就會每週固定重複。</p>'+
+      (legacyRows.length?'<details class="legacy-course-convert"><summary>舊日期課表：'+legacyRows.length+' 格尚未設定固定星期</summary><p class="muted">這些舊紀錄只有某一天的日期，系統無法自行推斷原本是星期幾的固定課。請逐格指定正確星期，或刪除不需要的舊資料。</p><div class="legacy-course-list">'+legacyRows.map(row=>'<div class="legacy-course-row"><div class="legacy-course-info"><b>'+esc(config.items.find(i=>i.id===row.itemId)?.name||row.areaCode||"未指定區域")+' · '+esc(row.start)+'–'+esc(row.end)+'</b><span>'+esc(row.title||"（未填課程）")+'　原日期：'+esc(row.date||"未記錄")+'</span></div><select aria-label="指定星期" data-legacy-weekday="'+esc(row.id)+'"><option value="">指定星期…</option>'+weekdays.map(d=>'<option value="'+d.value+'">'+d.label+'</option>').join("")+'</select><button type="button" class="primary" data-convert-legacy="'+esc(row.id)+'">轉成固定課表</button><button type="button" class="danger" data-legacy-delete="'+esc(row.id)+'">刪除</button></div>').join("")+'</div></details>':"")+
+      '<details class="weekly-editor-details"><summary>新增／編輯課程格</summary><div class="weekly-editor">'+
       '<input type="hidden" id="weeklyEditId" value="">'+
       '<label class="field">星期<select id="weeklyDay">'+weekdays.map(d=>'<option value="'+d.value+'">'+d.label+'</option>').join("")+'</select></label>'+
       '<label class="field">區域<select id="weeklyRoom">'+roomOptions+'</select></label>'+
       '<div class="grid"><label class="field">開始時間<input id="weeklyStart" type="time" value="13:00" required></label><label class="field">結束時間<input id="weeklyEnd" type="time" value="13:45" required></label></div>'+
       '<label class="field">課程／教師<textarea id="weeklyTitle" rows="2" maxlength="180" placeholder="輸入課程名稱與教師"></textarea></label>'+
       '<div class="button-row"><button type="button" id="weeklySave" class="primary">新增課程格</button><button type="button" id="weeklyReset" class="secondary">清空表單</button><span id="weeklyMessage" class="feedback" role="status"></span></div></div></details>'+
-      '<div class="weekly-admin-heading"><h3>整週課表（'+rows.length+' 格）</h3><span class="muted">點「清空這天」可一次刪除該星期的所有課程格。</span></div>'+
+      '<div class="weekly-admin-heading"><h3>整週課表（'+rows.length+' 格）</h3><span class="muted">'+(legacyRows.length?'另有 '+legacyRows.length+' 格舊日期資料待分配星期。':"點「清空這天」可一次刪除該星期的所有課程格。")+'</span></div>'+
       '<div class="weekly-admin-grid">'+weekdays.map(day=>{
         const dayRows=rows.filter(r=>r.weekday===day.value);
         return '<section class="week-day-column" data-drop-weekday="'+day.value+'"><div class="week-day-header"><h4>'+day.label+' <span>'+dayRows.length+' 格</span></h4><button type="button" class="danger weekly-clear-day" data-clear-weekday="'+day.value+'">清空這天</button></div>'+
           (dayRows.length?dayRows.map(row=>'<article class="weekly-course-card" draggable="true" data-weekly-card="'+esc(row.id)+'"><div class="drag-handle" title="拖曳到其他星期">⠿</div><div class="weekly-course-fields"><b>'+esc(config.items.find(i=>i.id===row.itemId)?.name||row.areaCode||"未指定區域")+'</b><span>'+esc(row.start)+'–'+esc(row.end)+'</span><span>'+esc(row.title||"（未填課程）")+'</span></div><div class="weekly-course-actions"><button type="button" class="secondary" data-weekly-edit="'+esc(row.id)+'">編輯</button><button type="button" class="secondary" data-weekly-copy="'+esc(row.id)+'">複製</button><button type="button" class="danger" data-weekly-delete="'+esc(row.id)+'">刪除</button></div></article>').join(""):'<p class="week-day-empty">沒有課程</p>')+'</section>';
       }).join("")+'</div>';
+    $( "[data-convert-legacy]" ).forEach(button=>button.onclick=async()=>{
+      const id=button.dataset.convertLegacy;
+      const raw=allSnap.docs.find(doc=>doc.id===id);
+      const row=legacyRows.find(item=>item.id===id);
+      const select=c.querySelector('[data-legacy-weekday="'+id+'"]');
+      if(!raw||!row||!select)return;
+      if(select.value===""){toast("請先選擇這門課真正上課的星期");return}
+      const weekday=Number(select.value),day=weekdays.find(d=>d.value===weekday);
+      if(!confirm("將「"+(row.title||row.areaCode||"這筆課程")+"」設定為每週"+(day?.label||"指定星期")+"固定課程？原日期會清除。"))return;
+      button.disabled=true;
+      try{
+        await sdk.setDoc(sdk.doc(db,"schedule",id),{weekday,dayName:day?.label||"",date:null,type:"weeklyCourse",updatedAt:sdk.serverTimestamp()},{merge:true});
+        await adminSection("schedule");toast("已轉成每週固定課表");
+      }catch(e){button.disabled=false;toast("轉換失敗："+friendlyError(e))}
+    });
+    $( "[data-legacy-delete]" ).forEach(button=>button.onclick=async()=>{
+      const id=button.dataset.legacyDelete,row=legacyRows.find(item=>item.id===id);
+      if(!row||!confirm("確定刪除這筆舊日期課表？"))return;
+      button.disabled=true;
+      try{await sdk.deleteDoc(sdk.doc(db,"schedule",id));await adminSection("schedule");toast("舊日期課表已刪除")}
+      catch(e){button.disabled=false;toast("刪除失敗："+friendlyError(e))}
+    });
     const resetWeekly=()=>{
       $("#weeklyEditId").value="";$("#weeklyDay").value="1";$("#weeklyRoom").value=config.items.find(i=>i.category==="booking"||i.category==="all")?.id||"";
       $("#weeklyStart").value="13:00";$("#weeklyEnd").value="13:45";$("#weeklyTitle").value="";
