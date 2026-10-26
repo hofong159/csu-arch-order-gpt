@@ -171,7 +171,7 @@ async function loadConfig(){
 }
 function requestForm(type,title){
   const available=getItems(type), workshop=["micro","output"].includes(type);
-  const board=type==="booking"?'<section class="item public-week-board"><div class="week-board-heading"><div><h2>本週課表與預約狀況</h2><p class="muted">固定課表每週自動重複；橘色代表已有申請或預約。只顯示教室與時段，不公開個人資料。</p></div><button type="button" id="refreshWeekBoard" class="secondary">重新整理</button></div><div id="publicWeekBoard" aria-live="polite"><p class="muted">正在載入整週課表…</p></div></section>':"";
+  const board=type==="booking"?'<section class="item public-week-board"><div class="week-board-heading"><div><h2>本週課表與預約狀況</h2><p class="muted">顯示本學期課程與預約狀況；橘色代表已有申請或預約。只顯示教室與時段，不公開個人資料。</p></div><button type="button" id="refreshWeekBoard" class="secondary">重新整理</button></div><div id="publicWeekBoard" aria-live="polite"><p class="muted">正在載入整週課表…</p></div></section>':"";
   return '<h2>'+esc(title)+'</h2><p class="muted">學生免登入，直接填表申請。送出後請保存查詢碼，之後使用手機號碼＋查詢碼查詢、簽到及簽退。</p>'+
     (available.length?"":'<div class="notice">目前尚未建立此分類的空間／設備，請管理員先新增項目。</div>')+
     board+
@@ -1207,7 +1207,7 @@ async function adminSection(which){
     const legacyRows=docs.filter(doc=>doc.data().type!=="singleCourse"&&!hasExplicitCourseWeekday(doc.data())&&doc.data().date).map(normalizeCourseDocument).filter(Boolean).sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.start).localeCompare(String(b.start)));
     const weekdays=weekDays();
     const roomOptions='<option value="">請選擇區域</option>'+config.items.filter(i=>i.category==="booking"||i.category==="all").map(i=>'<option value="'+esc(i.id)+'">'+esc(i.name)+'</option>').join("");
-    c.innerHTML='<h3>每學期課表</h3><p class="muted">先選「每學期」，設定一次就會每週重複顯示；只有特殊活動、補課才選「單次課程」。固定課表不用填日期，也不必每星期重新新增。</p>'+
+    c.innerHTML='<h3>每學期課表</h3><p class="muted">選擇「每學期」設定本學期課表；補課或特殊活動請選「單次課程」並指定日期。</p>'+
       (legacyRows.length?'<details class="legacy-course-convert" open><summary>舊日期課表：'+legacyRows.length+' 格尚未設定固定星期</summary><p class="muted">舊紀錄只有單日日期，請指定真正上課的星期，再按「轉成固定課表」。</p><div class="legacy-course-list">'+legacyRows.map(row=>'<div class="legacy-course-row"><div class="legacy-course-info"><b>'+esc(config.items.find(i=>i.id===row.itemId)?.name||row.areaCode||"未指定區域")+' · '+esc(row.start)+'–'+esc(row.end)+'</b><span>'+esc(row.title||"（未填課程）")+'　原日期：'+esc(row.date||"未記錄")+'</span></div><select aria-label="指定星期" data-legacy-weekday="'+esc(row.id)+'"><option value="">指定星期…</option>'+weekdays.map(d=>'<option value="'+d.value+'">'+d.label+'</option>').join("")+'</select><button type="button" class="primary" data-convert-legacy="'+esc(row.id)+'">轉成固定課表</button><button type="button" class="danger" data-legacy-delete="'+esc(row.id)+'">刪除</button></div>').join("")+'</div></details>':"")+
       '<details class="weekly-editor-details" open><summary>新增／編輯課程格（點此可收合）</summary><div class="weekly-editor">'+
       '<input type="hidden" id="weeklyEditId" value="">'+
@@ -1319,7 +1319,7 @@ async function adminSection(which){
       if(!row||!select)return;
       if(select.value===""){toast("請先選擇這門課真正上課的星期");return}
       const weekday=Number(select.value),day=weekdays.find(d=>d.value===weekday);
-      if(!confirm("將「"+(row.title||row.areaCode||"這筆課程")+"」設定為每週"+(day?.label||"指定星期")+"固定課程？原日期會清除。"))return;
+      if(!confirm("將「"+(row.title||row.areaCode||"這筆課程")+"」加入本學期的「"+(day?.label||"指定星期")+"」課程？原日期會清除。"))return;
       button.disabled=true;
       try{await sdk.setDoc(sdk.doc(db,"schedule",id),{weekday,dayName:day?.label||"",date:null,type:"weeklyCourse",updatedAt:sdk.serverTimestamp()},{merge:true});await adminSection("schedule");toast("已轉成本學期課表")}
       catch(e){button.disabled=false;toast("轉換失敗："+friendlyError(e))}
