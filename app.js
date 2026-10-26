@@ -179,8 +179,7 @@ function requestForm(type,title){
   const board=type==="booking"?'<section class="item public-week-board"><div class="week-board-heading"><div><h2>本週課表與預約狀況</h2><p class="muted">顯示本學期課程與預約狀況；橘色代表已有申請或預約。只顯示教室與時段，不公開個人資料。</p></div><button type="button" id="refreshWeekBoard" class="secondary">重新整理</button></div><div id="publicWeekBoard" aria-live="polite"><p class="muted">正在載入整週課表…</p></div></section>':"";
   return '<h2>'+esc(title)+'</h2><p class="muted">學生免登入，直接填表申請。送出後請保存查詢碼，之後使用手機號碼＋查詢碼查詢、簽到及簽退。</p>'+
     (available.length?"":'<div class="notice">'+(type==="booking"?"目前尚未建立可預約的空間／教室，請管理員先新增項目。":"目前尚未建立此分類的借用項目／設備，請管理員先新增項目。")+'</div>')+
-    board+
-    '<form id="requestForm"><div class="grid">'+
+        '<form id="requestForm"><div class="grid">'+
     '<label class="field">姓名 *<input id="personName" required maxlength="60"></label>'+
     '<label class="field">班級／單位 *<input id="className" required maxlength="80" placeholder="例如：建築四甲"></label>'+
     '<label class="field">手機號碼 *<input id="phone" type="tel" required maxlength="30" placeholder="09xxxxxxxx"></label>'+
@@ -194,7 +193,7 @@ function requestForm(type,title){
     (workshop?'<h3>使用規範與注意事項</h3><div class="rule">'+esc(config.rules[type]||defaultRules[type])+'</div><label class="check"><input id="agreeRules" type="checkbox"><span>我已閱讀並同意遵守上述規範。</span></label>':"")+
     '<label class="check"><input id="agree" type="checkbox"><span>我會對本人／全組使用負責，離場前清潔復原並完成簽退；簽退時需上傳現況照片。</span></label>'+
     '<div class="notice">'+esc(config.settings.notice||"原站規則：起始時間每 30 分鐘一格；借用時間以 3 小時為倍數，建議不超過 6 小時。夜間 19:00 至翌日 08:00 須在 19:00 前登記；寒暑假開放情況依管理員公告。21:30 現場無人將鎖門。")+'</div>'+
-    '<p id="requestMessage" class="feedback" role="status"></p><div id="receipt" class="notice hidden"></div><button class="primary full" type="submit" '+(available.length?"":"disabled")+'>送出申請</button></form>';
+    '<p id="requestMessage" class="feedback" role="status"></p><div id="receipt" class="notice hidden"></div><button class="primary full" type="submit" '+(available.length?"":"disabled")+'>送出申請</button></form>'+board;
 }
 function render(){
   $$(".tab").forEach(b=>b.classList.toggle("active",b.dataset.view===currentView));
