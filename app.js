@@ -658,9 +658,8 @@ async function showAdmin(){
   // Delegate clicks from the panel itself. This survives innerHTML refreshes and avoids
   // lost listeners when navigating between admin sections.
   p.onclick=async(event)=>{
-    const quick=event.target.closest&&event.target.closest("#quickSeedBtn");
     const tab=event.target.closest&&event.target.closest("button[data-admin]");
-    if(quick||tab){
+    if(tab){
       event.preventDefault();
       const which=tab.dataset.admin;
       $$("#adminPanel button[data-admin]").forEach(b=>b.classList.toggle("active",b===tab));
