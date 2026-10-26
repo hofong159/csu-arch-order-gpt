@@ -230,7 +230,7 @@ async function loadPublicWeeklyBoard(){
     });
     const rooms=config.items.filter(i=>i.category==="booking"||i.category==="all").sort((a,b)=>String(a.areaCode||a.name).localeCompare(String(b.areaCode||b.name),"zh-Hant"));
     if(!rooms.length){board.innerHTML='<div class="notice">尚未建立可預約教室。管理員請到「空間／設備」新增教室。</div>';return}
-    board.innerHTML='<div class="week-range">顯示 '+esc(week[0].date)+' 至 '+esc(week[6].date)+' · 每週固定課表＋本週預約</div>'+
+    board.innerHTML='<div class="week-range">顯示 '+esc(week[0].date)+' 至 '+esc(week[6].date)+' · 每學期課表＋本週預約</div>'+
       (bookingReadError?'<p class="feedback error">固定課表可以顯示，但已預約時段尚無法讀取。請管理員將最新版 firestore.rules 發布到 Firebase。</p>':"")+
       '<div class="public-room-grid">'+rooms.map(room=>{
         const roomCourses=courses.filter(c=>c.itemId===room.id||(!c.itemId&&areaKey(c.areaCode)===areaKey(room.areaCode||room.name)));
@@ -1207,18 +1207,18 @@ async function adminSection(which){
     const legacyRows=docs.filter(doc=>doc.data().type!=="singleCourse"&&!hasExplicitCourseWeekday(doc.data())&&doc.data().date).map(normalizeCourseDocument).filter(Boolean).sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.start).localeCompare(String(b.start)));
     const weekdays=weekDays();
     const roomOptions='<option value="">請選擇區域</option>'+config.items.filter(i=>i.category==="booking"||i.category==="all").map(i=>'<option value="'+esc(i.id)+'">'+esc(i.name)+'</option>').join("");
-    c.innerHTML='<h3>每週固定課表</h3><p class="muted">先選「每週固定課程」，設定一次就會每週重複顯示；只有特殊活動、補課才選「單次課程」。固定課表不用填日期，也不必每星期重新新增。</p>'+
+    c.innerHTML='<h3>每學期課表</h3><p class="muted">先選「每學期」，設定一次就會每週重複顯示；只有特殊活動、補課才選「單次課程」。固定課表不用填日期，也不必每星期重新新增。</p>'+
       (legacyRows.length?'<details class="legacy-course-convert" open><summary>舊日期課表：'+legacyRows.length+' 格尚未設定固定星期</summary><p class="muted">舊紀錄只有單日日期，請指定真正上課的星期，再按「轉成固定課表」。</p><div class="legacy-course-list">'+legacyRows.map(row=>'<div class="legacy-course-row"><div class="legacy-course-info"><b>'+esc(config.items.find(i=>i.id===row.itemId)?.name||row.areaCode||"未指定區域")+' · '+esc(row.start)+'–'+esc(row.end)+'</b><span>'+esc(row.title||"（未填課程）")+'　原日期：'+esc(row.date||"未記錄")+'</span></div><select aria-label="指定星期" data-legacy-weekday="'+esc(row.id)+'"><option value="">指定星期…</option>'+weekdays.map(d=>'<option value="'+d.value+'">'+d.label+'</option>').join("")+'</select><button type="button" class="primary" data-convert-legacy="'+esc(row.id)+'">轉成固定課表</button><button type="button" class="danger" data-legacy-delete="'+esc(row.id)+'">刪除</button></div>').join("")+'</div></details>':"")+
       '<details class="weekly-editor-details" open><summary>新增／編輯課程格（點此可收合）</summary><div class="weekly-editor">'+
       '<input type="hidden" id="weeklyEditId" value="">'+
-      '<label class="field">課程類型<select id="weeklyCourseType"><option value="weeklyCourse">每週固定課程（每學期設定一次）</option><option value="singleCourse">單次課程（只在指定日期）</option></select></label>'+
+      '<label class="field">課程類型<select id="weeklyCourseType"><option value="weeklyCourse">每學期</option><option value="singleCourse">單次課程（只在指定日期）</option></select></label>'+
       '<label class="field" id="weeklyDayField">固定星期<select id="weeklyDay">'+weekdays.map(d=>'<option value="'+d.value+'">'+d.label+'</option>').join("")+'</select></label>'+
       '<label class="field" id="weeklyDateField" style="display:none">單次上課日期<input id="weeklyDate" type="date" value="'+today()+'"></label>'+
       '<label class="field">區域／教室<select id="weeklyRoom">'+roomOptions+'</select></label>'+
-      '<div class="grid"><label class="field">開始時間<input id="weeklyStart" type="time" value="13:00" required></label><label class="field">結束時間<input id="weeklyEnd" type="time" value="13:45" required></label></div>'+
+      '<div class="grid"><label class="field">開始時間（24 小時制）<input id="weeklyStart" type="text" inputmode="numeric" autocomplete="off" maxlength="5" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" value="13:00" placeholder="HH:MM" required></label><label class="field">結束時間（24 小時制）<input id="weeklyEnd" type="text" inputmode="numeric" autocomplete="off" maxlength="5" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" value="13:45" placeholder="HH:MM" required></label><p class="muted time-format-note">直接輸入時間，例如 08:30 或 17:45，不用拖曳選時間。</p></div>'+
       '<label class="field">課程／教師<textarea id="weeklyTitle" rows="2" maxlength="180" placeholder="輸入課程名稱與教師"></textarea></label>'+
-      '<div class="button-row"><button type="button" id="weeklySave" class="primary">新增固定課程</button><button type="button" id="weeklyReset" class="secondary">清空表單</button><span id="weeklyMessage" class="feedback" role="status"></span></div></div></details>'+
-      '<div class="weekly-admin-heading"><h3>整週固定課表（'+rows.length+' 格）</h3><span class="muted">可拖曳課程、編輯、複製，或清空指定星期。</span></div>'+
+      '<div class="button-row"><button type="button" id="weeklySave" class="primary">新增課程格</button><button type="button" id="weeklyReset" class="secondary">清空表單</button><span id="weeklyMessage" class="feedback" role="status"></span></div></div></details>'+
+      '<div class="weekly-admin-heading"><h3>本學期課表（'+rows.length+' 格）</h3><span class="muted">可拖曳課程、編輯、複製，或清空指定星期。</span></div>'+
       '<div class="weekly-admin-grid">'+weekdays.map(day=>{
         const dayRows=rows.filter(r=>r.weekday===day.value);
         return '<section class="week-day-column" data-drop-weekday="'+day.value+'"><div class="week-day-header"><h4>'+day.label+' <span>'+dayRows.length+' 格</span></h4><button type="button" class="danger weekly-clear-day" data-clear-weekday="'+day.value+'">清空這天</button></div>'+
@@ -1229,7 +1229,7 @@ async function adminSection(which){
       const isSingle=$("#weeklyCourseType").value==="singleCourse";
       $("#weeklyDayField").style.display=isSingle?"none":"block";
       $("#weeklyDateField").style.display=isSingle?"block":"none";
-      $("#weeklySave").textContent=$("#weeklyEditId").value?"儲存修改":(isSingle?"新增單次課程":"新增固定課程");
+      $("#weeklySave").textContent=$("#weeklyEditId").value?"儲存修改":(isSingle?"新增單次課程":"新增課程格");
     };
     $("#weeklyCourseType").onchange=updateCourseTypeUI;
     const resetWeekly=()=>{
@@ -1243,7 +1243,9 @@ async function adminSection(which){
       const id=$("#weeklyEditId").value,courseType=$("#weeklyCourseType").value,itemId=$("#weeklyRoom").value,start=$("#weeklyStart").value,end=$("#weeklyEnd").value,title=$("#weeklyTitle").value.trim();
       const weekday=Number($("#weeklyDay").value),date=$("#weeklyDate").value;
       if(!itemId||!config.items.some(i=>i.id===itemId))return feedback("weeklyMessage","請先選擇區域／教室。",true);
-      if(!start||!end||start>=end)return feedback("weeklyMessage","請確認開始與結束時間，結束時間必須晚於開始時間。",true);
+      const valid24HourTime=value=>/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+      if(!valid24HourTime(start)||!valid24HourTime(end))return feedback("weeklyMessage","請用 24 小時制輸入 HH:MM，例如 08:30 或 17:45。",true);
+      if(start>=end)return feedback("weeklyMessage","結束時間必須晚於開始時間。",true);
       if(!title)return feedback("weeklyMessage","請填寫課程名稱／教師。",true);
       if(courseType==="singleCourse"&&!date)return feedback("weeklyMessage","請指定單次課程日期。",true);
       const room=config.items.find(i=>i.id===itemId),day=weekdays.find(d=>d.value===weekday);
@@ -1252,7 +1254,7 @@ async function adminSection(which){
         $("#weeklySave").disabled=true;$("#weeklySave").textContent="儲存中…";
         if(id)await sdk.setDoc(sdk.doc(db,"schedule",id),data,{merge:true});
         else await sdk.addDoc(sdk.collection(db,"schedule"),{...data,createdAt:sdk.serverTimestamp()});
-        await adminSection("schedule");toast(courseType==="singleCourse"?"單次課程已儲存":(id?"固定課程已更新":"固定課程已新增"));
+        await adminSection("schedule");toast(courseType==="singleCourse"?"單次課程已儲存":(id?"課程已更新":"課程已新增"));
       }catch(e){feedback("weeklyMessage","儲存失敗："+friendlyError(e),true);$("#weeklySave").disabled=false;updateCourseTypeUI()}
     };
     $$( "[data-weekly-edit]" ).forEach(button=>button.onclick=()=>{
@@ -1261,7 +1263,7 @@ async function adminSection(which){
       $("#weeklyEditId").value=row.id;$("#weeklyCourseType").value=single?"singleCourse":"weeklyCourse";
       $("#weeklyDay").value=String(row.weekday??1);$("#weeklyDate").value=row.date||today();$("#weeklyRoom").value=row.itemId;
       $("#weeklyStart").value=row.start;$("#weeklyEnd").value=row.end;$("#weeklyTitle").value=row.title;
-      updateCourseTypeUI();$("#weeklySave").textContent="儲存修改";feedback("weeklyMessage","正在編輯課程格；儲存後會套用到每週或指定日期。");
+      updateCourseTypeUI();$("#weeklySave").textContent="儲存修改";feedback("weeklyMessage","正在編輯課程格；儲存後會套用到本學期課表或指定日期。");
       $("#weeklyTitle").focus();
     });
     $$( "[data-weekly-copy]" ).forEach(button=>button.onclick=()=>{
@@ -1270,11 +1272,11 @@ async function adminSection(which){
       $("#weeklyEditId").value="";$("#weeklyCourseType").value=single?"singleCourse":"weeklyCourse";
       $("#weeklyDay").value=String(row.weekday??1);$("#weeklyDate").value=row.date||today();$("#weeklyRoom").value=row.itemId;
       $("#weeklyStart").value=row.start;$("#weeklyEnd").value=row.end;$("#weeklyTitle").value=row.title;
-      updateCourseTypeUI();$("#weeklySave").textContent=single?"儲存複製單次課程":"儲存複製固定課程";
+      updateCourseTypeUI();$("#weeklySave").textContent=single?"儲存複製單次課程":"儲存複製課程";
       feedback("weeklyMessage","已複製到新增表單；修改後按儲存即可。");$("#weeklyTitle").focus();
     });
     $$( "[data-weekly-delete]" ).forEach(button=>button.onclick=async()=>{
-      const row=rows.find(r=>r.id===button.dataset.weeklyDelete);if(!row||!confirm("確定刪除這個每週固定課程格？"))return;
+      const row=rows.find(r=>r.id===button.dataset.weeklyDelete);if(!row||!confirm("確定刪除這個每學期格？"))return;
       try{await sdk.deleteDoc(sdk.doc(db,"schedule",row.id));await adminSection("schedule");toast("固定課程已刪除")}
       catch(e){toast("刪除失敗："+friendlyError(e))}
     });
@@ -1286,7 +1288,7 @@ async function adminSection(which){
     $$( "[data-clear-weekday]" ).forEach(button=>button.onclick=async()=>{
       const weekday=Number(button.dataset.clearWeekday),day=weekdays.find(d=>d.value===weekday),targets=rows.filter(r=>r.weekday===weekday);
       if(!targets.length){toast((day?.label||"這天")+"沒有課程可刪除");return}
-      if(!confirm("確定清空"+(day?.label||"這天")+"的全部 "+targets.length+" 格固定課表？其他星期不會受影響，且無法復原。"))return;
+      if(!confirm("確定清空"+(day?.label||"這天")+"的全部 "+targets.length+" 格本學期課表？其他星期不會受影響，且無法復原。"))return;
       button.disabled=true;
       try{
         for(let offset=0;offset<targets.length;offset+=450){
@@ -1319,7 +1321,7 @@ async function adminSection(which){
       const weekday=Number(select.value),day=weekdays.find(d=>d.value===weekday);
       if(!confirm("將「"+(row.title||row.areaCode||"這筆課程")+"」設定為每週"+(day?.label||"指定星期")+"固定課程？原日期會清除。"))return;
       button.disabled=true;
-      try{await sdk.setDoc(sdk.doc(db,"schedule",id),{weekday,dayName:day?.label||"",date:null,type:"weeklyCourse",updatedAt:sdk.serverTimestamp()},{merge:true});await adminSection("schedule");toast("已轉成每週固定課表")}
+      try{await sdk.setDoc(sdk.doc(db,"schedule",id),{weekday,dayName:day?.label||"",date:null,type:"weeklyCourse",updatedAt:sdk.serverTimestamp()},{merge:true});await adminSection("schedule");toast("已轉成本學期課表")}
       catch(e){button.disabled=false;toast("轉換失敗："+friendlyError(e))}
     });
     $$( "[data-legacy-delete]" ).forEach(button=>button.onclick=async()=>{
