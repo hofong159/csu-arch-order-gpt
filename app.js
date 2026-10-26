@@ -365,14 +365,37 @@ function scheduleRowsFromText(text,defaultDate){
     return {date,start,end,title,itemId:item?.id||"",areaCode:item?.areaCode||(item?areaKey(item.name):area),type:"course"};
   });
 }
+function weekDays(){
+  return [{value:1,label:"星期一"},{value:2,label:"星期二"},{value:3,label:"星期三"},{value:4,label:"星期四"},{value:5,label:"星期五"},{value:6,label:"星期六"},{value:0,label:"星期日"}];
+}
+function getCourseWeekday(course){
+  const raw=course.weekday??course.dayOfWeek??course.weekDay;
+  if(raw!==undefined&&raw!==null&&raw!==""&&Number.isInteger(Number(raw))&&Number(raw)>=0&&Number(raw)<=6)return Number(raw);
+  const date=String(course.date||"");
+  const match=date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(match)return new Date(Number(match[1]),Number(match[2])-1,Number(match[3]),12).getDay();
+  return null;
+}
+function normalizeCourseDocument(doc){
+  const data=doc.data(),weekday=getCourseWeekday(data);
+  if(weekday===null)return null;
+  const item=config.items.find(i=>i.id===(data.itemId||""))||findAreaItem(data.areaCode||data.area||"");
+  return {id:doc.id,...data,weekday,itemId:item?.id||data.itemId||"",areaCode:item?.areaCode||data.areaCode||areaKey(item?.name||""),title:data.title||data.course||data.label||"",start:data.start||data.startTime||"",end:data.end||data.endTime||""};
+}
+function startOfLocalDay(date){return new Date(date+"T00:00:00").getTime()}
 async function checkCourseConflicts(start,end,itemId){
-  const dates=new Set();for(let d=new Date(start);d<end;d.setDate(d.getDate()+1))dates.add(localDate(d));
+  const dates=[];for(let d=new Date(start);d<end;d=new Date(d.getTime()+86400000))dates.push(localDate(d));
+  if(!dates.length)dates.push(localDate(start));
+  const snap=await sdk.getDocs(sdk.collection(db,"schedule"));
+  const courses=snap.docs.map(normalizeCourseDocument).filter(Boolean);
   for(const day of dates){
-    const q=await sdk.getDocs(sdk.query(sdk.collection(db,"schedule"),sdk.where("date","==",day)));
-    for(const docSnap of q.docs){
-      const course=docSnap.data();if(course.itemId&&course.itemId!==itemId)continue;
-      const s=dateTime(day,course.start),e=dateTime(day,course.end);
-      if(intersect(start.getTime(),end.getTime(),s.getTime(),e.getTime()))throw new Error("與課表衝突："+day+" "+course.start+"–"+course.end+"，請改選時間。");
+    const weekday=new Date(day+"T12:00:00").getDay();
+    for(const course of courses){
+      if(course.weekday!==weekday)continue;
+      if(course.itemId&&course.itemId!==itemId)continue;
+      const courseStart=dateTime(day,course.start),courseEnd=dateTime(day,course.end);
+      if(intersect(start.getTime(),end.getTime(),courseStart.getTime(),courseEnd.getTime()))
+        throw new Error("與固定課表衝突："+weekDays().find(d=>d.value===weekday)?.label+" "+course.start+"–"+course.end+"（"+(course.title||"正課")+"），請改選時間。");
     }
   }
 }
@@ -1073,93 +1096,79 @@ async function adminSection(which){
     $$("[data-delitem]").forEach(b=>b.onclick=async()=>{if(!confirm("確定刪除此項目？"))return;try{await sdk.deleteDoc(sdk.doc(db,"items",b.dataset.delitem));await loadConfig();await adminSection("items");render();toast("項目已刪除")}catch(e){toast("刪除失敗："+friendlyError(e))}});
   }
   if(which==="schedule"){
-    c.innerHTML='<div class="notice" role="status">正在讀取課表資料…（若 12 秒內無回應，會顯示原因）</div>';
-    const snap=await withFirestoreTimeout(sdk.getDocs(sdk.collection(db,"schedule")),"課表讀取",12000);
-    const rows=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>String(a.date||"").localeCompare(String(b.date||""))||String(a.start||"").localeCompare(String(b.start||"")));
-    c.innerHTML='<h3>課表管理／匯入舊課表</h3>'+
-      '<p class="muted">支援 CSV 和 JSON。CSV 可用欄位標題（日期、區域、開始時間、結束時間、課程名稱），也支援舊格式；區域可填 A、A區、空間代碼或項目 ID。無日期的檔案會使用下方預設日期。</p>'+
-      '<label class="field">匯入日期（檔案沒有日期時使用）<input id="defaultScheduleDate" type="date" value="'+today()+'"></label>'+
-      '<label class="field">選擇舊課表 CSV／JSON 檔<input id="scheduleFile" type="file" accept=".csv,.txt,.json,text/csv,application/json"></label>'+
-      '<label class="field">課表內容（可直接貼上）<textarea id="csv" rows="8" placeholder="日期,區域,開始時間,結束時間,課程名稱\n2026-10-24,A,13:00,13:45,基本設計(一)／教師"></textarea></label>'+
-      '<label class="check"><input type="checkbox" id="replaceSchedule">匯入前清除現有課表（請謹慎使用）</label>'+
-      '<button id="importSchedule" class="primary">解析並匯入課表</button>'+
-      '<p id="scheduleMessage" class="feedback" role="status" aria-live="polite"></p>'+
-      '<h3>目前課表（'+rows.length+' 筆）</h3><div class="table-wrap"><table><thead><tr><th>日期</th><th>區域</th><th>時段</th><th>課程</th><th>操作</th></tr></thead><tbody>'+
-      rows.map(r=>'<tr><td>'+esc(r.date||"未設定")+'</td><td>'+esc(r.areaCode?(String(r.areaCode).endsWith("區")?r.areaCode:r.areaCode+"區"):"全域占用")+'</td><td>'+esc(r.start||"")+'–'+esc(r.end||"")+'</td><td>'+esc(r.title||r.label||"課表占用")+'</td><td><button class="danger" data-sdel="'+esc(r.id)+'">刪除</button></td></tr>').join("")+
-      '</tbody></table></div>';
-
-    $("#scheduleFile").onchange=async()=>{
-      const file=$("#scheduleFile").files?.[0];if(!file)return;
-      try{$("#csv").value=await file.text();feedback("scheduleMessage","已讀取 "+file.name+"（"+file.size+" bytes），請確認日期和區域後按「解析並匯入課表」。")}
-      catch(e){feedback("scheduleMessage","讀取檔案失敗："+friendlyError(e),true)}
+    const allSnap=await withFirestoreTimeout(sdk.getDocs(sdk.collection(db,"schedule")),"固定課表讀取",12000);
+    const rows=allSnap.docs.map(normalizeCourseDocument).filter(Boolean).sort((a,b)=>{
+      const rank=w=>w===0?7:w;
+      return rank(a.weekday)-rank(b.weekday)||String(a.start).localeCompare(String(b.start))||String(a.areaCode).localeCompare(String(b.areaCode));
+    });
+    const weekdays=weekDays();
+    const roomOptions='<option value="">請選擇區域</option>'+config.items.filter(i=>i.category==="booking"||i.category==="all").map(i=>'<option value="'+esc(i.id)+'">'+esc(i.name)+'</option>').join("");
+    c.innerHTML='<h3>每週固定課表</h3><p class="muted">每學期設定一次即可，不需要輸入日期，也不用每週重複新增。可以拖曳課程卡片到其他星期，或複製一格後修改。</p>'+
+      '<div class="weekly-editor">'+
+      '<input type="hidden" id="weeklyEditId" value="">'+
+      '<label class="field">星期<select id="weeklyDay">'+weekdays.map(d=>'<option value="'+d.value+'">'+d.label+'</option>').join("")+'</select></label>'+
+      '<label class="field">區域<select id="weeklyRoom">'+roomOptions+'</select></label>'+
+      '<div class="grid"><label class="field">開始時間<input id="weeklyStart" type="time" value="13:00" required></label><label class="field">結束時間<input id="weeklyEnd" type="time" value="13:45" required></label></div>'+
+      '<label class="field">課程<textarea id="weeklyTitle" rows="2" maxlength="180" placeholder="例如：建築與室內設計（一）／教師姓名"></textarea></label>'+
+      '<div class="button-row"><button type="button" id="weeklySave" class="primary">新增課程格</button><button type="button" id="weeklyReset" class="secondary">清空</button><span id="weeklyMessage" class="feedback" role="status"></span></div></div>'+
+      '<h3>整週課表（'+rows.length+' 格）</h3><div class="weekly-admin-grid">'+weekdays.map(day=>{
+        const dayRows=rows.filter(r=>r.weekday===day.value);
+        return '<section class="week-day-column" data-drop-weekday="'+day.value+'"><h4>'+day.label+' <span>'+dayRows.length+' 格</span></h4>'+
+          (dayRows.length?dayRows.map(row=>'<article class="weekly-course-card" draggable="true" data-weekly-card="'+esc(row.id)+'"><div class="drag-handle" title="拖曳到其他星期">⠿</div><div class="weekly-course-fields"><b>'+esc(config.items.find(i=>i.id===row.itemId)?.name||row.areaCode||"未指定區域")+'</b><span>'+esc(row.start)+'–'+esc(row.end)+'</span><span>'+esc(row.title||"（未填課程）")+'</span></div><div class="weekly-course-actions"><button type="button" class="secondary" data-weekly-edit="'+esc(row.id)+'">編輯</button><button type="button" class="secondary" data-weekly-copy="'+esc(row.id)+'">複製</button><button type="button" class="danger" data-weekly-delete="'+esc(row.id)+'">刪除</button></div></article>').join(""):'<p class="week-day-empty">拖曳課程到這裡，或從上方新增。</p>')+'</section>';
+      }).join("")+'</div>';
+    const resetWeekly=()=>{
+      $("#weeklyEditId").value="";$("#weeklyDay").value="1";$("#weeklyRoom").value=config.items.find(i=>i.category==="booking"||i.category==="all")?.id||"";
+      $("#weeklyStart").value="13:00";$("#weeklyEnd").value="13:45";$("#weeklyTitle").value="";
+      $("#weeklySave").textContent="新增課程格";feedback("weeklyMessage","");
     };
-    $("#importSchedule").onclick=async()=>{
-      const button=$("#importSchedule"),original=button.textContent;
-      button.disabled=true;button.textContent="正在解析／匯入…";
+    $("#weeklyReset").onclick=resetWeekly;
+    $("#weeklySave").onclick=async()=>{
+      const id=$("#weeklyEditId").value,weekday=Number($("#weeklyDay").value),itemId=$("#weeklyRoom").value,start=$("#weeklyStart").value,end=$("#weeklyEnd").value,title=$("#weeklyTitle").value.trim();
+      if(!itemId||!config.items.some(i=>i.id===itemId))return feedback("weeklyMessage","請先選擇區域。",true);
+      if(!start||!end||start>=end)return feedback("weeklyMessage","請確認開始與結束時間，結束時間必須晚於開始時間。",true);
+      if(!title)return feedback("weeklyMessage","請填寫課程名稱。",true);
+      const room=config.items.find(i=>i.id===itemId);
+      const data={weekday,dayName:weekdays.find(d=>d.value===weekday)?.label||"",itemId,areaCode:room?.areaCode||areaKey(room?.name||""),start,end,title,type:"weeklyCourse",date:null,updatedAt:sdk.serverTimestamp()};
       try{
-        let raw=$("#csv").value.trim();
-        if(!raw&&$("#scheduleFile").files?.[0])raw=await $("#scheduleFile").files[0].text();
-        // If a legacy getBoard() JSON includes spaces, upsert those spaces first so course area IDs resolve.
-        if(raw.startsWith("{")){
-          let parsedJson;
-          try{parsedJson=JSON.parse(raw)}catch(e){throw new Error("JSON 格式錯誤："+e.message)}
-          const spaces=legacyArray(parsedJson,["spaces","areas","rooms","locations"]);
-          if(Array.isArray(spaces)&&spaces.length){
-            const existing=config.items;
-            const batch=sdk.writeBatch(db);let writes=0;
-            for(const space of spaces){
-              const name=String(space.name||space.label||space.title||"").trim();
-              const rawCode=String(space.areaCode||space.code||space.id||name).trim();
-              if(!name)continue;
-              const found=existing.find(i=>i.name===name||String(i.areaCode||"").toUpperCase()===areaKey(rawCode));
-              const itemId=found?.id||String(space.id||("space_"+rawCode)).replace(/[^A-Za-z0-9_-]/g,"_").slice(0,120);
-              batch.set(sdk.doc(db,"items",itemId),{
-                name,category:space.category||"booking",areaCode:space.areaCode||rawCode,
-                description:space.description||"由舊系統匯入的空間",available:found?.available===false?false:space.available!==false,
-                source:"legacy-import",updatedAt:sdk.serverTimestamp()
-              },{merge:true});writes++;
-            }
-            if(writes)await batch.commit();
-            await loadConfig();
-          }
-        }
-        const parsed=scheduleRowsFromText(raw,$("#defaultScheduleDate").value||today());
-        if(!parsed.length)throw new Error("沒有找到可匯入的課表資料。");
-        const current=await sdk.getDocs(sdk.collection(db,"schedule"));
-        const existing=current.docs.map(d=>({id:d.id,...d.data()}));
-        if($("#replaceSchedule").checked){
-          if(!confirm("確定刪除目前 "+existing.length+" 筆課表，再匯入 "+parsed.length+" 筆？此動作不能自動復原。"))throw new Error("已取消匯入，原課表未變更。");
-          for(let offset=0;offset<current.docs.length;offset+=400){
-            const batch=sdk.writeBatch(db);
-            current.docs.slice(offset,offset+400).forEach(d=>batch.delete(d.ref));
-            await batch.commit();
-          }
-        }
-        const planned=parsed.map(row=>{
-          const same=existing.find(r=>r.date===row.date&&r.start===row.start&&r.end===row.end&&(r.itemId||"")===(row.itemId||"")&&(r.title||r.label||"")===row.title);
-          const key=[row.date,row.areaCode||"all",row.start,row.end,stableHash(row.title)].join("_").replace(/[^A-Za-z0-9_-]/g,"_");
-          return {id:same?.id||("import_"+key),...row,source:"CSV／JSON 匯入",updatedAt:sdk.serverTimestamp()};
-        });
-        const unique=new Map(planned.map(row=>[row.id,row]));
-        const toWrite=[...unique.values()];
-        for(let offset=0;offset<toWrite.length;offset+=400){
-          const batch=sdk.writeBatch(db);
-          toWrite.slice(offset,offset+400).forEach(row=>{
-            const {id,...data}=row;batch.set(sdk.doc(db,"schedule",id),data,{merge:true});
-          });
-          await batch.commit();
-        }
-        await adminSection("schedule");
-        feedback("scheduleMessage","匯入成功："+toWrite.length+" 筆課表。區域已對應到 Firebase 項目 ID，預約時會依區域檢查課表衝突。");
-        toast("課表匯入完成");
-      }catch(e){
-        feedback("scheduleMessage","匯入失敗："+friendlyError(e),true);
-      }finally{button.disabled=false;button.textContent=original}
+        $("#weeklySave").disabled=true;$("#weeklySave").textContent="儲存中…";
+        if(id)await sdk.setDoc(sdk.doc(db,"schedule",id),data,{merge:true});
+        else await sdk.addDoc(sdk.collection(db,"schedule"),{...data,createdAt:sdk.serverTimestamp()});
+        await adminSection("schedule");toast(id?"課表已更新":"課程格已新增");
+      }catch(e){feedback("weeklyMessage","儲存失敗："+friendlyError(e),true);$("#weeklySave").disabled=false;$("#weeklySave").textContent=id?"儲存修改":"新增課程格"}
     };
-    $$("[data-sdel]").forEach(b=>b.onclick=async()=>{
-      if(!confirm("確定刪除此課表？"))return;
-      try{await sdk.deleteDoc(sdk.doc(db,"schedule",b.dataset.sdel));await adminSection("schedule");toast("課表已刪除")}
-      catch(e){feedback("scheduleMessage","刪除失敗："+friendlyError(e),true)}
+    $$( "[data-weekly-edit]" ).forEach(button=>button.onclick=()=>{
+      const row=rows.find(r=>r.id===button.dataset.weeklyEdit);if(!row)return;
+      $("#weeklyEditId").value=row.id;$("#weeklyDay").value=String(row.weekday);$("#weeklyRoom").value=row.itemId;
+      $("#weeklyStart").value=row.start;$("#weeklyEnd").value=row.end;$("#weeklyTitle").value=row.title;
+      $("#weeklySave").textContent="儲存修改";feedback("weeklyMessage","正在編輯課程格；儲存後會套用到每週。");
+      $("#weeklyTitle").focus();c.scrollIntoView({behavior:"smooth",block:"start"});
+    });
+    $$( "[data-weekly-copy]" ).forEach(button=>button.onclick=()=>{
+      const row=rows.find(r=>r.id===button.dataset.weeklyCopy);if(!row)return;
+      $("#weeklyEditId").value="";$("#weeklyDay").value=String(row.weekday);$("#weeklyRoom").value=row.itemId;
+      $("#weeklyStart").value=row.start;$("#weeklyEnd").value=row.end;$("#weeklyTitle").value=row.title+"（複製）";
+      $("#weeklySave").textContent="儲存複製格";feedback("weeklyMessage","已複製到新增表單。修改星期、區域、時段或課程，再儲存即可。");
+      $("#weeklyTitle").focus();c.scrollIntoView({behavior:"smooth",block:"start"});
+    });
+    $$( "[data-weekly-delete]" ).forEach(button=>button.onclick=async()=>{
+      const row=rows.find(r=>r.id===button.dataset.weeklyDelete);if(!row||!confirm("確定刪除這個每週固定課程格？"))return;
+      try{await sdk.deleteDoc(sdk.doc(db,"schedule",row.id));await adminSection("schedule");toast("課程格已刪除")}
+      catch(e){toast("刪除失敗："+friendlyError(e))}
+    });
+    $$( "[data-weekly-card]" ).forEach(card=>{
+      card.addEventListener("dragstart",event=>{event.dataTransfer.setData("text/plain",card.dataset.weeklyCard);event.dataTransfer.effectAllowed="move";card.classList.add("dragging")});
+      card.addEventListener("dragend",()=>card.classList.remove("dragging"));
+    });
+    $$( "[data-drop-weekday]" ).forEach(column=>{
+      column.addEventListener("dragover",event=>{event.preventDefault();column.classList.add("drag-over");event.dataTransfer.dropEffect="move"});
+      column.addEventListener("dragleave",event=>{if(!column.contains(event.relatedTarget))column.classList.remove("drag-over")});
+      column.addEventListener("drop",async event=>{
+        event.preventDefault();column.classList.remove("drag-over");
+        const id=event.dataTransfer.getData("text/plain"),row=rows.find(r=>r.id===id),weekday=Number(column.dataset.dropWeekday);
+        if(!row||row.weekday===weekday)return;
+        try{await sdk.setDoc(sdk.doc(db,"schedule",id),{weekday,dayName:weekdays.find(d=>d.value===weekday)?.label||"",date:null,updatedAt:sdk.serverTimestamp()},{merge:true});await adminSection("schedule");toast("已移到"+(weekdays.find(d=>d.value===weekday)?.label||"指定星期"))}
+        catch(e){toast("移動失敗："+friendlyError(e))}
+      });
     });
   }
   if(which==="bookings"){
