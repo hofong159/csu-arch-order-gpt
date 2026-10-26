@@ -46,10 +46,10 @@ jobs:
             for (let attempt = 0; attempt < 30; attempt++) {
               await page.waitForTimeout(2500);
               appAsset = await page.locator("script[src*='app.js']").getAttribute("src").catch(() => "");
-              if (appAsset.includes("20261027-booking-form-first-v3")) break;
+              if (appAsset.includes("20261027-hours-up-to-12-v1")) break;
               response = await page.goto(url + "&retry=" + attempt, { waitUntil: "domcontentloaded", timeout: 60000 });
             }
-            if (!appAsset.includes("20261027-booking-form-first-v3")) throw new Error("LATEST_GITHUB_PAGES_ASSET_NOT_DEPLOYED: " + appAsset);
+            if (!appAsset.includes("20261027-hours-up-to-12-v1")) throw new Error("LATEST_GITHUB_PAGES_ASSET_NOT_DEPLOYED: " + appAsset);
             console.log("URL:", page.url());
             console.log("HTTP:", response?.status());
             console.log("TITLE:", await page.title());
@@ -58,6 +58,16 @@ jobs:
             const initialHeading = await page.locator("#view h2").first().textContent();
             if (!initialHeading.includes("正修建築與室內設計系")) throw new Error("DEPARTMENT_HEADING_NOT_UPDATED");
             console.log("INITIAL H2:", initialHeading);
+            const dateAndDuration = await page.evaluate(() => ({
+              hoursType: document.querySelector("#hours")?.type || "",
+              hoursMin: document.querySelector("#hours")?.min || "",
+              hoursMax: document.querySelector("#hours")?.max || "",
+              hoursStep: document.querySelector("#hours")?.step || "",
+              dateMax: document.querySelector("#date")?.max || "",
+              dateMin: document.querySelector("#date")?.min || ""
+            }));
+            console.log("DATE AND DURATION INPUTS:", JSON.stringify(dateAndDuration));
+            if (dateAndDuration.hoursType !== "number" || dateAndDuration.hoursMin !== "0.5" || dateAndDuration.hoursMax !== "12" || dateAndDuration.hoursStep !== "0.5" || dateAndDuration.dateMax !== "" || !dateAndDuration.dateMin) throw new Error("FUTURE_DATE_OR_DURATION_INPUT_INVALID");
             const bookingFormOrder = await page.evaluate(() => {
               const form = document.querySelector("#requestForm");
               const board = document.querySelector("#publicWeekBoard");
@@ -97,7 +107,7 @@ jobs:
                 !appSource.includes('p.onclick=async(event)=>') || appSource.includes('quickSeedBtn') ||
                 !appSource.includes("weekly-admin-grid") || !appSource.includes("loadPublicWeeklyBoard") ||
                 !appSource.includes("data-weekly-copy") || !appSource.includes("data-deletebooking") || !appSource.includes('id="weeklyCourseType"') || !appSource.includes('id="weeklyStart" type="text"') || !appSource.includes('id="weeklyEnd" type="text"') || !appSource.includes("valid24HourTime") || !appSource.includes('<option value="weeklyCourse">每學期</option>') || !appSource.includes("singleCourse") || !appSource.includes("data-clear-weekday") || !appSource.includes("data-convert-legacy") || !appSource.includes("function randomNumericCode") || !appSource.includes("bookingLookups") || !appSource.includes("DEFAULT_CLOSED_NOTICES") || !appSource.includes('id="borrowingOpen"') || !appSource.includes('id="borrowingClosedNotice"') || !appSource.includes('id="microClosedNotice"') || !appSource.includes('id="outputClosedNotice"') || !appSource.includes('config.settings[type+"ClosedNotice"]') || !appSource.includes('"settings.borrowingOpen"') ||
-                !appSource.includes('id="hours" type="text"') || !appSource.includes("items") ||
+                !appSource.includes('id="hours" type="number" inputmode="decimal" min="0.5" max="12" step="0.5"') || !appSource.includes("hours<0.5||hours>12") || !appSource.includes("items") ||
                 !appSource.includes("schedule") || !appSource.includes("bookings")) {
               throw new Error("WEEKLY_BOARD_OR_ADMIN_CONTROLS_MISSING");
             }

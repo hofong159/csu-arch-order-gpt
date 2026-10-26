@@ -128,6 +128,11 @@ const LEGACY_EXPORT_SNIPPET = String.raw`(function () {
   }
   next();
 })();`;
+function normalizeHoursNotice(text){
+  return String(text||"")
+    .replace(/借用時間以\s*3\s*小時為倍數，(?:可跨日，)?建議不超過\s*6\s*小時/g,"借用時間可跨日；時數可設定 0.5 至 12 小時，以 0.5 小時（30 分鐘）為單位")
+    .replace(/借用時數請直接輸入 3 或 6 小時。/g,"借用時數可設定 0.5 至 12 小時，以 0.5 小時（30 分鐘）為單位。");
+}
 const defaultRules = {
   booking:"每區最多兩組，單組不得獨占。請愛惜空間與設備，使用後清潔復原。",
   borrowing:"借出及歸還時請確認物品狀況，並依管理員公告辦理。",
@@ -187,12 +192,12 @@ function requestForm(type,title){
     '<label class="field">'+(type==="booking"?"預約空間／教室":"借用項目／設備")+' *<select id="item" required>'+itemOptions(type)+'</select></label>'+
     '<label class="field">開始日期 *<input id="date" type="date" value="'+today()+'" min="'+today()+'" required></label>'+
     '<label class="field">開始時間 *<select id="start" required>'+timeOptions()+'</select></label>'+
-    '<label class="field">借用時數（小時）*<input id="hours" type="text" inputmode="numeric" autocomplete="off" maxlength="1" pattern="3|6" value="3" required placeholder="請輸入 3 或 6"></label></div>'+
-    '<p class="muted">借用時數請直接輸入 3 或 6 小時。</p>'+
+    '<label class="field">借用時數（小時）*<input id="hours" type="number" inputmode="decimal" min="0.5" max="12" step="0.5" value="3" required></label></div>'+
+    '<p class="muted">借用時數可設定 0.5 至 12 小時，以 0.5 小時（30 分鐘）為單位；日期可選今天以後，包含下週。</p>'+
     '<label class="field">用途／備註<textarea id="purpose" maxlength="1000" placeholder="簡述使用目的、材料或設備需求"></textarea></label>'+
     (workshop?'<h3>使用規範與注意事項</h3><div class="rule">'+esc(config.rules[type]||defaultRules[type])+'</div><label class="check"><input id="agreeRules" type="checkbox"><span>我已閱讀並同意遵守上述規範。</span></label>':"")+
     '<label class="check"><input id="agree" type="checkbox"><span>我會對本人／全組使用負責，離場前清潔復原並完成簽退；簽退時需上傳現況照片。</span></label>'+
-    '<div class="notice">'+esc(config.settings.notice||"原站規則：起始時間每 30 分鐘一格；借用時間以 3 小時為倍數，建議不超過 6 小時。夜間 19:00 至翌日 08:00 須在 19:00 前登記；寒暑假開放情況依管理員公告。21:30 現場無人將鎖門。")+'</div>'+
+    '<div class="notice">'+esc(normalizeHoursNotice(config.settings.notice||"原站規則：起始時間每 30 分鐘一格；借用時數可設定 0.5 至 12 小時，以 0.5 小時（30 分鐘）為單位。夜間 19:00 至翌日 08:00 須在 19:00 前登記；寒暑假開放情況依管理員公告。21:30 現場無人將鎖門。"))+'</div>'+
     '<p id="requestMessage" class="feedback" role="status"></p><div id="receipt" class="notice hidden"></div><button class="primary full" type="submit" '+(available.length?"":"disabled")+'>送出申請</button></form>'+board;
 }
 function render(){
@@ -503,7 +508,7 @@ async function submitRequest(e){
     if(["borrowing","micro","output"].includes(type)&&config.settings[type+"Open"]===false)throw new Error(config.settings[type+"ClosedNotice"]||DEFAULT_CLOSED_NOTICES[type]);
     if(["micro","output"].includes(type)&&!$("#agreeRules").checked)throw new Error("請先閱讀並同意使用規範。");
     if(!$("#agree").checked)throw new Error("請先勾選使用責任與簽退規範。");
-    if(!Number.isFinite(hours)||hours<3||hours>6||hours%3!==0)throw new Error("借用時數請輸入 3 或 6 小時。");
+    if(!Number.isFinite(hours)||hours<0.5||hours>12||Math.abs(hours*2-Math.round(hours*2))>1e-9)throw new Error("借用時數請輸入 0.5 至 12 小時，並以 0.5 小時（30 分鐘）為單位。");
     if(val("date")<today())throw new Error("不能申請過去日期。");
     const start=dateTime(val("date"),val("start")),end=new Date(start.getTime()+hours*3600000);
     if(start.getTime()<=Date.now())throw new Error("不能申請已開始或過去的時段。");
@@ -876,7 +881,7 @@ async function seedBaselineData(){
     const existingPublic=settingsSnap.exists()?settingsSnap.data():{};
     const oldSettings=existingPublic.settings||{};
     const oldRules=existingPublic.rules||{};
-    const sourceNotice="原站規則：起始時間每 30 分鐘一格；借用時間以 3 小時為倍數，可跨日，建議不超過 6 小時。夜間 19:00 至翌日 08:00 須於 19:00 前登記；寒暑假不開放。每區最多兩組，單組不得獨占。21:30 現場無人將鎖門，晚間留用請依規定事先到場確認。簽退前請清潔復原並依現場規定回報照片。";
+    const sourceNotice="原站規則：起始時間每 30 分鐘一格；借用時間可跨日，時數可設定 0.5 至 12 小時，以 0.5 小時（30 分鐘）為單位。夜間 19:00 至翌日 08:00 須於 19:00 前登記；寒暑假不開放。每區最多兩組，單組不得獨占。21:30 現場無人將鎖門，晚間留用請依規定事先到場確認。簽退前請清潔復原並依現場規定回報照片。";
     batch.set(sdk.doc(db,"settings","public"),{
       settings:{
         microOpen:oldSettings.microOpen===false?false:true,
@@ -1182,7 +1187,7 @@ async function adminSection(which){
       '<label class="field">正修微工坊關閉時公告<textarea id="microClosedNotice">'+esc(s.microClosedNotice||DEFAULT_CLOSED_NOTICES.micro)+'</textarea></label>'+
       '<label class="check"><input id="outputOpen" type="checkbox" '+(s.outputOpen===false?"":"checked")+'>開放出圖室</label>'+
       '<label class="field">出圖室關閉時公告<textarea id="outputClosedNotice">'+esc(s.outputClosedNotice||DEFAULT_CLOSED_NOTICES.output)+'</textarea></label>'+
-      '<label class="field">公告／提醒（開放申請時顯示）<textarea id="siteNotice">'+esc(s.notice||"")+'</textarea></label>'+
+      '<label class="field">公告／提醒（開放申請時顯示）<textarea id="siteNotice">'+esc(normalizeHoursNotice(s.notice||""))+'</textarea></label>'+
       ["booking","borrowing","micro","output"].map(k=>'<label class="field">'+labels[k]+'規範<textarea id="rule_'+k+'">'+esc(r[k]||defaultRules[k])+'</textarea></label>').join("")+
       '<button id="saveSettings" class="primary">儲存設定</button>'+
       '<p id="settingsMessage" class="feedback" role="status" aria-live="polite"></p>';
