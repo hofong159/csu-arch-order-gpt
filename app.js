@@ -408,11 +408,31 @@ function weekDays(){
   return [{value:1,label:"星期一"},{value:2,label:"星期二"},{value:3,label:"星期三"},{value:4,label:"星期四"},{value:5,label:"星期五"},{value:6,label:"星期六"},{value:0,label:"星期日"}];
 }
 function getCourseWeekday(course){
-  const raw=course.weekday??course.dayOfWeek??course.weekDay;
+  const raw=course.weekday??course.dayOfWeek??course.weekDay??course.day_of_week;
   if(raw!==undefined&&raw!==null&&raw!==""&&Number.isInteger(Number(raw))&&Number(raw)>=0&&Number(raw)<=6)return Number(raw);
-  const date=String(course.date||"");
-  const match=date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if(match)return new Date(Number(match[1]),Number(match[2])-1,Number(match[3]),12).getDay();
+  const dayText=String(course.dayName??course.weekdayName??course.day??course.weekDayName??raw??"").trim().toLowerCase();
+  const dayAliases=[
+    ["星期日","週日","週天","周日","周天","星期天","sunday","sun","日"],
+    ["星期一","週一","周一","monday","mon","一"],
+    ["星期二","週二","周二","tuesday","tue","二"],
+    ["星期三","週三","周三","wednesday","wed","三"],
+    ["星期四","週四","周四","thursday","thu","四"],
+    ["星期五","週五","周五","friday","fri","五"],
+    ["星期六","週六","周六","saturday","sat","六"]
+  ];
+  for(let weekday=0;weekday<dayAliases.length;weekday++){
+    if(dayAliases[weekday].some(name=>dayText===name||dayText.includes(name)))return weekday;
+  }
+  let dateValue=course.date??course.courseDate??course.classDate??course.scheduleDate;
+  if(dateValue&&typeof dateValue.toDate==="function")dateValue=localDate(dateValue.toDate());
+  if(dateValue instanceof Date)dateValue=localDate(dateValue);
+  const date=String(dateValue||"").trim();
+  const match=date.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:$|[T\s])/);
+  if(match){
+    const year=Number(match[1]),month=Number(match[2]),day=Number(match[3]);
+    const parsed=new Date(year,month-1,day,12);
+    if(parsed.getFullYear()===year&&parsed.getMonth()===month-1&&parsed.getDate()===day)return parsed.getDay();
+  }
   return null;
 }
 function normalizeCourseDocument(doc){
