@@ -174,7 +174,7 @@ function requestForm(type,title){
     '<label class="field">空間／設備 *<select id="item" required>'+itemOptions(type)+'</select></label>'+
     '<label class="field">開始日期 *<input id="date" type="date" value="'+today()+'" min="'+today()+'" required></label>'+
     '<label class="field">開始時間 *<select id="start" required>'+timeOptions()+'</select></label>'+
-    '<label class="field">借用時數（小時）*<input id="hours" type="number" inputmode="decimal" min="3" max="6" step="3" value="3" required placeholder="輸入 3 或 6"></label></div>'+
+    '<label class="field">借用時數（小時）*<input id="hours" type="text" inputmode="numeric" autocomplete="off" maxlength="1" pattern="3|6" value="3" required placeholder="請輸入 3 或 6"></label></div>'+
     '<p class="muted">借用時數請直接輸入 3 或 6 小時。</p>'+
     '<label class="field">用途／備註<textarea id="purpose" maxlength="1000" placeholder="簡述使用目的、材料或設備需求"></textarea></label>'+
     (workshop?'<h3>使用規範與注意事項</h3><div class="rule">'+esc(config.rules[type]||defaultRules[type])+'</div><label class="check"><input id="agreeRules" type="checkbox"><span>我已閱讀並同意遵守上述規範。</span></label>':"")+
