@@ -1066,34 +1066,6 @@ async function adminSection(which){
     $("#createAdminBtn").onclick=createAdmin;
     loadAdminList();
   }
-  if(which==="seed"){
-    c.innerHTML='<h3>匯入原站舊資料</h3>'+
-      '<p>若有從舊網站取得的 getBoard() 資料 JSON，請使用下方匯入器。它會匯入 spaces、courses、bookings（含原有 photos 陣列），並把舊區域 ID 對應到目前 Firebase 的空間 ID。</p>'+
-      '<label class="field">舊資料日期（JSON 沒有日期時使用）<input id="legacyImportDate" type="date" value="'+today()+'"></label>'+
-      '<label class="field">選擇舊資料 JSON 檔<input id="legacyJsonFile" type="file" accept=".json,application/json"></label>'+
-      '<label class="field">JSON 內容（可直接貼上）<textarea id="legacyJson" rows="8" placeholder=\'{"spaces":[{"id":"A","name":"A區"}],"courses":[{"area":"A","start":"13:00","end":"13:45","label":"基本設計"}],"bookings":[]}\'></textarea></label>'+
-      '<button id="importLegacyBtn" class="primary">匯入舊網站資料 JSON</button>'+
-      '<p id="legacyImportMessage" class="feedback" role="status" aria-live="polite"></p>'+
-      '<h3>先從舊網站匯出實際資料</h3><p>開啟舊網站，在 Chrome 按 F12 → Console，將下面指令貼到舊網站的 Google Apps Script 網頁框架執行。它會逐日讀取 getBoard()，最多 31 天，並下載包含 spaces、courses、bookings 的 JSON。</p>'+
-      '<label class="field">舊網站匯出指令（複製後到舊網站 Console 執行）<textarea id="legacyExportCode" rows="9" readonly>'+esc(LEGACY_EXPORT_SNIPPET)+'</textarea></label>'+
-      '<button id="copyLegacyExportBtn" class="secondary">複製舊網站匯出指令</button><p id="legacyExportCopyMessage" class="feedback" role="status"></p>'+
-      '<div class="notice"><b>重要：</b>你先前提供的「輸出代碼 HTML」只有呼叫 getBoard() 的前端程式，不含後端即時資料。先用上方指令從原站下載 JSON，再在這裡選擇下載的 JSON 檔匯入。</div>'+
-      '<hr><h3>一鍵預載已確認的原站資料</h3>'+
-      '<p>只匯入你已提供並能確認的資料，不會清空既有紀錄：10 個區域、17 筆 2026/10/24 正課，以及兩筆舊借用紀錄。</p>'+
-      '<button id="seedBaselineBtn" class="secondary">匯入已確認的空間／課表／借用紀錄</button>'+
-      '<p id="seedMessage" class="feedback" role="status" aria-live="polite"></p>';
-    $("#legacyJsonFile").onchange=async()=>{
-      const file=$("#legacyJsonFile").files?.[0];if(!file)return;
-      try{$("#legacyJson").value=await file.text();feedback("legacyImportMessage","已讀取 "+file.name+"，請確認後按「匯入舊網站資料 JSON」。")}
-      catch(e){feedback("legacyImportMessage","讀取檔案失敗："+friendlyError(e),true)}
-    };
-    $("#importLegacyBtn").onclick=importLegacySnapshot;
-    $("#seedBaselineBtn").onclick=seedBaselineData;
-    $("#copyLegacyExportBtn").onclick=async()=>{
-      try{await navigator.clipboard.writeText(LEGACY_EXPORT_SNIPPET);feedback("legacyExportCopyMessage","已複製。切回舊網站，在 F12 → Console 貼上執行即可。")}
-      catch(e){$("#legacyExportCode").focus();$("#legacyExportCode").select();feedback("legacyExportCopyMessage","瀏覽器未允許自動複製，已選取指令，請按 Ctrl+C。")}
-    };
-  }
   if(which==="settings"){
     const s=config.settings||{},r=config.rules||{};
     c.innerHTML='<h3>開放狀態／公告</h3><p class="muted">修改後按「儲存設定」。若 Firestore 規則不允許寫入，錯誤會直接顯示在此處。</p>'+
@@ -1216,13 +1188,17 @@ async function adminSection(which){
       try{
         const refs=[];
         (Array.isArray(row.lockIds)?row.lockIds:[]).forEach(lockId=>refs.push(sdk.doc(db,"reservationLocks",lockId)));
+        // Also query by bookingId so older records with incomplete lockIds do not leave stale locks.
+        const lockSnap=await sdk.getDocs(sdk.query(sdk.collection(db,"reservationLocks"),sdk.where("bookingId","==",id)));
+        lockSnap.docs.forEach(lock=>refs.push(lock.ref));
         const photos=await sdk.getDocs(sdk.collection(db,"bookings",id,"photos"));
         photos.docs.forEach(photo=>refs.push(photo.ref));
         if(row.publicReservationId)refs.push(sdk.doc(db,"publicBookings",row.publicReservationId));
         refs.push(sdk.doc(db,"bookings",id));
-        for(let offset=0;offset<refs.length;offset+=450){
+        const uniqueRefs=[...new Map(refs.map(ref=>[ref.path,ref])).values()];
+        for(let offset=0;offset<uniqueRefs.length;offset+=450){
           const batch=sdk.writeBatch(db);
-          refs.slice(offset,offset+450).forEach(ref=>batch.delete(ref));
+          uniqueRefs.slice(offset,offset+450).forEach(ref=>batch.delete(ref));
           await batch.commit();
         }
         toast("借用紀錄與關聯資料已刪除");
