@@ -1052,6 +1052,38 @@ async function importLegacySnapshot(){
   }finally{if(button){button.disabled=false;button.textContent=original}}
 }
 
+async function syncPublicReservationMirrors(rows){
+  const candidates=rows.filter(row=>!row.publicReservationId&&["pending","approved"].includes(row.status)&&row.itemId&&row.item&&row.date&&row.start);
+  if(!candidates.length)return {count:0,error:""};
+  let count=0;
+  try{
+    for(let offset=0;offset<candidates.length;offset+=200){
+      const batch=sdk.writeBatch(db),pending=[];
+      for(const row of candidates.slice(offset,offset+200)){
+        const startAt=Number(row.startAt)||dateTime(row.date,row.start).getTime();
+        const endAt=Number(row.endAt)||dateTime(row.endDate||row.date,row.endTime||"23:59").getTime();
+        if(!Number.isFinite(startAt)||!Number.isFinite(endAt)||endAt<=startAt||!row.endTime)continue;
+        const publicId=randomCode();
+        batch.set(sdk.doc(db,"publicBookings",publicId),{
+          itemId:String(row.itemId),item:String(row.item),date:String(row.date),start:String(row.start),
+          endDate:String(row.endDate||row.date),endTime:String(row.endTime),
+          startAt,endAt,status:row.status,createdAt:sdk.serverTimestamp()
+        });
+        batch.update(sdk.doc(db,"bookings",row.id),{publicReservationId:publicId});
+        pending.push({row,publicId});
+      }
+      if(pending.length){
+        await batch.commit();
+        pending.forEach(entry=>{entry.row.publicReservationId=entry.publicId});
+        count+=pending.length;
+      }
+    }
+    return {count,error:""};
+  }catch(e){
+    console.warn("Unable to sync existing reservation occupancy records",e);
+    return {count,error:friendlyError(e)};
+  }
+}
 async function adminSection(which){
   const c=$("#adminContent");
   if(which==="admins"){
@@ -1178,7 +1210,11 @@ async function adminSection(which){
     const snap=await withFirestoreTimeout(sdk.getDocs(sdk.collection(db,"bookings")),"申請／照片資料讀取",12000),rows=snap.docs.map(d=>({id:d.id,...d.data()}));
     const createdMillis=value=>value?.toDate?value.toDate().getTime():(value?new Date(value).getTime():0);
     rows.sort((a,b)=>createdMillis(b.createdAt)-createdMillis(a.createdAt));
-    c.innerHTML='<h3>申請／照片管理</h3><div class="table-wrap"><table><thead><tr><th>申請人／手機</th><th>項目／時間</th><th>狀態</th><th>簽到／照片</th><th>審核</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+esc(r.name)+'<br>'+esc(r.className)+'<br>'+esc(r.phone)+'</td><td>'+esc(r.item)+'<br>'+esc(r.date)+' '+esc(r.start)+'–'+esc(r.endDate&&r.endDate!==r.date?r.endDate+' ':'')+esc(r.endTime)+'<br><small>'+esc(r.purpose||"")+'</small></td><td>'+esc(r.displayStatus||statusLabel(r.status))+(r.legacyImportConflict?'<br><b style="color:#b45309">⚠ 匯入時段衝突，未佔用時段</b>':"")+'</td><td>'+(r.checkedInAt?"已簽到":"未簽到")+'／'+(r.checkedOutAt?"已簽退":"未簽退")+'<br>'+((r.photoIds||[]).map((p,i)=>'<button class="secondary" data-openphoto="'+esc(r.id)+'" data-photoid="'+esc(p)+'">照片'+(i+1)+'</button>').concat((Array.isArray(r.photos)?r.photos:[]).map((p,i)=>'<button class="secondary" data-openlegacy="'+esc(r.id)+'" data-legacyidx="'+i+'">舊照片'+(i+1)+'</button>')).join(" ")||"無照片")+'</td><td><select data-status="'+esc(r.id)+'">'+["pending","approved","rejected","cancelled","finished"].map(k=>'<option value="'+k+'" '+(r.status===k?"selected":"")+'>'+statusLabel(k)+'</option>').join("")+'</select><button class="secondary" data-savebooking="'+esc(r.id)+'">儲存</button><button class="danger" data-deletebooking="'+esc(r.id)+'">刪除</button></td></tr>').join("")+'</tbody></table></div>';
+    const mirrorSync=await syncPublicReservationMirrors(rows);
+    const mirrorNotice=mirrorSync.error
+      ?'<div class="notice">既有預約的首頁時段同步尚未完成。請確認已在 Firebase Console 發布最新版 firestore.rules。詳細原因：'+esc(mirrorSync.error)+'</div>'
+      :(mirrorSync.count?'<div class="notice">已將 '+mirrorSync.count+' 筆既有待審核／已核准紀錄同步至首頁週表。</div>':"");
+    c.innerHTML='<h3>申請／照片管理</h3>'+mirrorNotice+'<div class="table-wrap"><table><thead><tr><th>申請人／手機</th><th>項目／時間</th><th>狀態</th><th>簽到／照片</th><th>審核</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+esc(r.name)+'<br>'+esc(r.className)+'<br>'+esc(r.phone)+'</td><td>'+esc(r.item)+'<br>'+esc(r.date)+' '+esc(r.start)+'–'+esc(r.endDate&&r.endDate!==r.date?r.endDate+' ':'')+esc(r.endTime)+'<br><small>'+esc(r.purpose||"")+'</small></td><td>'+esc(r.displayStatus||statusLabel(r.status))+(r.legacyImportConflict?'<br><b style="color:#b45309">⚠ 匯入時段衝突，未佔用時段</b>':"")+'</td><td>'+(r.checkedInAt?"已簽到":"未簽到")+'／'+(r.checkedOutAt?"已簽退":"未簽退")+'<br>'+((r.photoIds||[]).map((p,i)=>'<button class="secondary" data-openphoto="'+esc(r.id)+'" data-photoid="'+esc(p)+'">照片'+(i+1)+'</button>').concat((Array.isArray(r.photos)?r.photos:[]).map((p,i)=>'<button class="secondary" data-openlegacy="'+esc(r.id)+'" data-legacyidx="'+i+'">舊照片'+(i+1)+'</button>')).join(" ")||"無照片")+'</td><td><select data-status="'+esc(r.id)+'">'+["pending","approved","rejected","cancelled","finished"].map(k=>'<option value="'+k+'" '+(r.status===k?"selected":"")+'>'+statusLabel(k)+'</option>').join("")+'</select><button class="secondary" data-savebooking="'+esc(r.id)+'">儲存</button><button class="danger" data-deletebooking="'+esc(r.id)+'">刪除</button></td></tr>').join("")+'</tbody></table></div>';
     $$("[data-savebooking]").forEach(b=>b.onclick=async()=>{const id=b.dataset.savebooking,status=$("[data-status='"+id+"']",c).value;try{await sdk.updateDoc(sdk.doc(db,"bookings",id),{status,reviewedAt:sdk.serverTimestamp()});const bookingRow=rows.find(r=>r.id===id);if(bookingRow?.publicReservationId)await sdk.updateDoc(sdk.doc(db,"publicBookings",bookingRow.publicReservationId),{status,updatedAt:sdk.serverTimestamp()});if(["rejected","cancelled","finished"].includes(status)){const locks=await sdk.getDocs(sdk.query(sdk.collection(db,"reservationLocks"),sdk.where("bookingId","==",id)));for(const l of locks.docs)await sdk.deleteDoc(sdk.doc(db,"reservationLocks",l.id))}toast("申請狀態已更新");await adminSection("bookings")}catch(e){toast("更新失敗："+friendlyError(e))}});
     $("[data-deletebooking]").forEach(button=>button.onclick=async()=>{
       const id=button.dataset.deletebooking,row=rows.find(r=>r.id===id);
