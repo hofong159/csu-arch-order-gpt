@@ -201,8 +201,8 @@ function render(){
     const cards=getItems(currentView).map(i=>'<article class="item"><h3>'+esc(i.name)+'</h3><span class="status '+(i.available===false?"off":"")+'">'+(i.available===false?"目前不可用":"可用")+'</span><p>'+esc(i.description||"請依現場公告及管理員指示使用。")+'</p></article>').join("");
     v.innerHTML='<div class="notice">'+labels[currentView]+'目前：<b>'+(closed?"暫停開放":"開放申請")+'</b></div>'+(closed?"<p>目前暫停申請，請留意管理員公告。</p>":'<div class="cards">'+(cards||'<p class="muted">目前尚未建立機器或設備清單。</p>')+'</div>'+requestForm(currentView,labels[currentView]));
   }else{
-    v.innerHTML='<h2>我的申請／簽到簽退</h2><p class="muted">學生免登入。請使用申請時取得的查詢碼和原本填寫的手機號碼；遺失查詢碼後，無法從公開頁面找回。</p>'+
-      '<div class="grid"><label class="field">申請時的手機號碼<input id="lookupPhone" type="tel" required></label><label class="field">申請查詢碼<input id="lookupCode" maxlength="32" required placeholder="32 碼英數查詢碼"></label></div>'+
+    v.innerHTML='<h2>我的申請／簽到簽退</h2><p class="muted">學生免登入。請使用申請時取得的五碼數字查詢碼和原本填寫的手機號碼；遺失查詢碼後，無法從公開頁面找回。</p>'+
+      '<div class="grid"><label class="field">申請時的手機號碼<input id="lookupPhone" type="tel" required></label><label class="field">申請查詢碼<input id="lookupCode" maxlength="32" required placeholder="5 碼數字查詢碼（舊申請可用原碼）"></label></div>'+
       '<button id="lookupBtn" class="primary">查詢我的申請</button><p id="lookupMessage" class="feedback" role="status"></p><div id="myRecords"></div>';
     $("#lookupBtn").onclick=loadMine;
   }
@@ -475,46 +475,59 @@ async function submitRequest(e){
     if(start.getTime()<=Date.now())throw new Error("不能申請已開始或過去的時段。");
     await checkCourseConflicts(start,end,itemId);
     const slots=[];for(let d=new Date(start);d<end;d=new Date(d.getTime()+30*60000)){const date=localDate(d),time=fmt(d);slots.push({date,time,key:date+"_"+itemId+"_"+time.replace(":","")})}
-    const code=randomCode(),publicId=randomCode(),bookingRef=sdk.doc(db,"bookings",code),publicRef=sdk.doc(db,"publicBookings",publicId);
+    const code=randomCode(),shortCode=randomNumericCode(),publicId=randomCode();
+    const lookupId=await bookingLookupId(cleanPhone(val("phone")),shortCode);
+    const bookingRef=sdk.doc(db,"bookings",code),publicRef=sdk.doc(db,"publicBookings",publicId),lookupRef=sdk.doc(db,"bookingLookups",lookupId);
     const lanes=[0,1].map(lane=>slots.map(slot=>sdk.doc(db,"reservationLocks",slot.key+"_"+lane)));
     await sdk.runTransaction(db,async tx=>{
       const refs=lanes[0].concat(lanes[1]);
-      const snaps=await Promise.all(refs.map(ref=>tx.get(ref)));
+      const [snaps,lookupSnap]=await Promise.all([Promise.all(refs.map(ref=>tx.get(ref))),tx.get(lookupRef)]);
+      if(lookupSnap.exists())throw new Error("這組五碼查詢碼剛好重複，請重新送出一次申請。");
       const n=slots.length;
       const lane=snaps.slice(0,n).every(s=>!s.exists())?0:(snaps.slice(n).every(s=>!s.exists())?1:-1);
       if(lane<0)throw new Error("此區域時段已額滿（每區每半小時最多兩組），請選擇其他時間。");
       const lockIds=slots.map(s=>s.key+"_"+lane);
       tx.set(bookingRef,{
         name:val("personName"),className:val("className"),phone:cleanPhone(val("phone")),
-        borrowType:val("borrowType"),type,itemId,item:item.name,date:val("date"),start:val("start"),
+        borrowType:val("borrowType"),type,itemId,item:item.name,date:val("date"),start:val("start"),lookupCode:shortCode,
         hours,purpose:val("purpose"),status:"pending",startAt:start.getTime(),endAt:end.getTime(),
         endDate:localDate(end),endTime:fmt(end),lockIds,photoIds:[],createdAt:sdk.serverTimestamp(),
         checkedInAt:null,checkedOutAt:null,publicReservationId:publicId
       });
       tx.set(publicRef,{itemId,item:item.name,date:val("date"),start:val("start"),endDate:localDate(end),endTime:fmt(end),startAt:start.getTime(),endAt:end.getTime(),status:"pending",createdAt:sdk.serverTimestamp()});
+      tx.set(lookupRef,{bookingId:code,createdAt:sdk.serverTimestamp()});
       slots.forEach((slot,i)=>tx.set(sdk.doc(db,"reservationLocks",lockIds[i]),{
         bookingId:code,lockId:lockIds[i],itemId,date:slot.date,time:slot.time,lane,status:"active",createdAt:sdk.serverTimestamp()
       }));
     });
     const receipt=$("#receipt");receipt.classList.remove("hidden");
-    receipt.innerHTML='<b>申請已送出，狀態：待審核</b><p>預約查詢碼：<strong style="font-size:22px;letter-spacing:.08em">'+esc(code)+'</strong></p><p>請立即保存這組查詢碼；之後需同時輸入手機號碼與查詢碼。查詢碼只顯示這一次。</p><button type="button" id="copyCode" class="secondary">複製查詢碼</button>';
-    $("#copyCode").onclick=async()=>{try{await navigator.clipboard.writeText(code);toast("查詢碼已複製")}catch{toast("請手動抄下查詢碼："+code)}};
+    receipt.innerHTML='<b>申請已送出，狀態：待審核</b><p>五碼數字查詢碼：<strong style="font-size:28px;letter-spacing:.12em">'+esc(shortCode)+'</strong></p><p>請立即保存這組五碼數字；之後使用原本手機號碼＋五碼查詢。查詢碼只顯示這一次。</p><button type="button" id="copyCode" class="secondary">複製查詢碼</button>';
+    $("#copyCode").onclick=async()=>{try{await navigator.clipboard.writeText(shortCode);toast("五碼查詢碼已複製")}catch{toast("請手動抄下五碼查詢碼："+shortCode)}};
     feedback("requestMessage","申請已送出。請保存上方查詢碼。");e.target.reset();$("#date").value=today();toast("申請已送出");
   }catch(err){feedback("requestMessage",err.message||"送出失敗，請稍後重試。",true)}
 }
 function statusLabel(s){return ({pending:"待審核",approved:"已核准",rejected:"未核准",cancelled:"已取消",finished:"已完成"})[s]||s||"未知"}
 async function loadMine(){
-  const phone=cleanPhone($("#lookupPhone").value),code=$("#lookupCode").value.trim().toLowerCase();
-  if(!phone||!/^[a-f0-9]{32}$/.test(code)){feedback("lookupMessage","請輸入手機號碼及完整 32 碼查詢碼。",true);return}
+  const phone=cleanPhone($("#lookupPhone").value),enteredCode=$("#lookupCode").value.trim();
+  const isShortCode=/^\d{5}$/.test(enteredCode),isLegacyCode=/^[a-f0-9]{32}$/i.test(enteredCode);
+  if(!phone||(!isShortCode&&!isLegacyCode)){feedback("lookupMessage","請輸入手機號碼，以及五碼數字查詢碼（舊申請可輸入原本的 32 碼）。",true);return}
   try{
-    const snap=await sdk.getDoc(sdk.doc(db,"bookings",code));
-    if(!snap.exists())throw new Error("查無此申請，請確認查詢碼。");
+    let bookingId=enteredCode.toLowerCase();
+    if(isShortCode){
+      const lookupId=await bookingLookupId(phone,enteredCode);
+      const lookup=await sdk.getDoc(sdk.doc(db,"bookingLookups",lookupId));
+      if(!lookup.exists())throw new Error("查無此申請，請確認手機號碼與五碼查詢碼。");
+      bookingId=String(lookup.data().bookingId||"");
+      if(!/^[a-f0-9]{32}$/.test(bookingId))throw new Error("查詢資料格式不正確，請聯絡管理員。");
+    }
+    const snap=await sdk.getDoc(sdk.doc(db,"bookings",bookingId));
+    if(!snap.exists())throw new Error("查無此申請，請確認手機號碼與查詢碼。");
     const data=snap.data();
     if(cleanPhone(data.phone)!==phone)throw new Error("手機號碼或查詢碼不正確。");
     let photoRows=[];
     if(Array.isArray(data.photoIds)&&data.photoIds.length){
       const photoResults=await Promise.all(data.photoIds.slice(0,5).map(async id=>{
-        try{const p=await sdk.getDoc(sdk.doc(db,"bookings",code,"photos",id));return p.exists()?{id,...p.data()}:null}catch(e){return null}
+        try{const p=await sdk.getDoc(sdk.doc(db,"bookings",bookingId,"photos",id));return p.exists()?{id,...p.data()}:null}catch(e){return null}
       }));
       photoRows=photoResults.filter(Boolean);
     }
@@ -523,11 +536,11 @@ async function loadMine(){
       return src?{id:"legacy-"+i,name:entry?.name||("舊照片"+(i+1)),dataUrl:src,legacy:true}:null;
     }).filter(Boolean);
     photoRows=[...photoRows,...legacyPhotoRows].slice(0,5);
-    $("#myRecords").innerHTML=recordCard(data,code,photoRows);feedback("lookupMessage","查詢成功。");
+    $("#myRecords").innerHTML=recordCard(data,bookingId,photoRows);feedback("lookupMessage","查詢成功。");
     if($("#checkinBtn"))$("#checkinBtn").onclick=async()=>{try{
-      await sdk.updateDoc(sdk.doc(db,"bookings",code),{checkedInAt:sdk.serverTimestamp()});toast("簽到成功");await loadMine();
+      await sdk.updateDoc(sdk.doc(db,"bookings",bookingId),{checkedInAt:sdk.serverTimestamp()});toast("簽到成功");await loadMine();
     }catch(e){feedback("lookupMessage",friendlyError(e),true)}};
-    if($("#checkoutBtn"))$("#checkoutBtn").onclick=()=>checkout(code);
+    if($("#checkoutBtn"))$("#checkoutBtn").onclick=()=>checkout(bookingId);
   }catch(e){$("#myRecords").innerHTML="";feedback("lookupMessage",friendlyError(e),true)}
 }
 function recordCard(d,code,photoRows=[]){
@@ -1245,7 +1258,7 @@ async function adminSection(which){
       :(mirrorSync.count?'<div class="notice">已將 '+mirrorSync.count+' 筆既有待審核／已核准紀錄同步至首頁週表。</div>':"");
     c.innerHTML='<h3>申請／照片管理</h3>'+mirrorNotice+'<div class="table-wrap"><table><thead><tr><th>申請人／手機</th><th>項目／時間</th><th>狀態</th><th>簽到／照片</th><th>審核</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+esc(r.name)+'<br>'+esc(r.className)+'<br>'+esc(r.phone)+'</td><td>'+esc(r.item)+'<br>'+esc(r.date)+' '+esc(r.start)+'–'+esc(r.endDate&&r.endDate!==r.date?r.endDate+' ':'')+esc(r.endTime)+'<br><small>'+esc(r.purpose||"")+'</small></td><td>'+esc(r.displayStatus||statusLabel(r.status))+(r.legacyImportConflict?'<br><b style="color:#b45309">⚠ 匯入時段衝突，未佔用時段</b>':"")+'</td><td>'+(r.checkedInAt?"已簽到":"未簽到")+'／'+(r.checkedOutAt?"已簽退":"未簽退")+'<br>'+((r.photoIds||[]).map((p,i)=>'<button class="secondary" data-openphoto="'+esc(r.id)+'" data-photoid="'+esc(p)+'">照片'+(i+1)+'</button>').concat((Array.isArray(r.photos)?r.photos:[]).map((p,i)=>'<button class="secondary" data-openlegacy="'+esc(r.id)+'" data-legacyidx="'+i+'">舊照片'+(i+1)+'</button>')).join(" ")||"無照片")+'</td><td><select data-status="'+esc(r.id)+'">'+["pending","approved","rejected","cancelled","finished"].map(k=>'<option value="'+k+'" '+(r.status===k?"selected":"")+'>'+statusLabel(k)+'</option>').join("")+'</select><button class="secondary" data-savebooking="'+esc(r.id)+'">儲存</button><button class="danger" data-deletebooking="'+esc(r.id)+'">刪除</button></td></tr>').join("")+'</tbody></table></div>';
     $$("[data-savebooking]").forEach(b=>b.onclick=async()=>{const id=b.dataset.savebooking,status=$("[data-status='"+id+"']",c).value;try{await sdk.updateDoc(sdk.doc(db,"bookings",id),{status,reviewedAt:sdk.serverTimestamp()});const bookingRow=rows.find(r=>r.id===id);if(bookingRow?.publicReservationId)await sdk.updateDoc(sdk.doc(db,"publicBookings",bookingRow.publicReservationId),{status,updatedAt:sdk.serverTimestamp()});if(["rejected","cancelled","finished"].includes(status)){const locks=await sdk.getDocs(sdk.query(sdk.collection(db,"reservationLocks"),sdk.where("bookingId","==",id)));for(const l of locks.docs)await sdk.deleteDoc(sdk.doc(db,"reservationLocks",l.id))}toast("申請狀態已更新");await adminSection("bookings")}catch(e){toast("更新失敗："+friendlyError(e))}});
-    $("[data-deletebooking]").forEach(button=>button.onclick=async()=>{
+    $$("[data-deletebooking]").forEach(button=>button.onclick=async()=>{
       const id=button.dataset.deletebooking,row=rows.find(r=>r.id===id);
       if(!row||!confirm("確定永久刪除「"+(row.name||"這筆申請")+"」的紀錄？\n會一併刪除關聯時段鎖、簽退照片與公開時段，不可復原。"))return;
       button.disabled=true;
@@ -1269,7 +1282,7 @@ async function adminSection(which){
         await adminSection("bookings");
       }catch(e){button.disabled=false;toast("刪除失敗："+friendlyError(e))}
     });
-    $("[data-openphoto]").forEach(b=>b.onclick=async()=>{
+    $$("[data-openphoto]").forEach(b=>b.onclick=async()=>{
       const w=window.open("","_blank");if(!w)return toast("瀏覽器阻擋新視窗，請允許彈出視窗後重試");
       try{
         const d=await withFirestoreTimeout(sdk.getDoc(sdk.doc(db,"bookings",b.dataset.openphoto,"photos",b.dataset.photoid)),"簽退照片讀取",12000);
