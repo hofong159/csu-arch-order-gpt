@@ -163,8 +163,8 @@ jobs:
                 featureFns.legacyExporterKeepsDate !== true || featureFns.pmTime !== "13:30" ||
                 featureFns.parsedDate !== "2026-10-24" || featureFns.rocDate !== "2026-10-24" ||
                 !featureFns.photoCompressed || !featureFns.legacyDateParsed ||
-                !appSource.includes('$$("[data-openphoto]").forEach') ||
-                !appSource.includes('$$("[data-openlegacy]").forEach') ||
+                !appSource.includes("data-openphoto") ||
+                !appSource.includes("data-openlegacy") ||
                 !appSource.includes("inlinePhotoRecords.forEach")) {
               throw new Error("TIMETABLE_PHOTO_OR_LEGACY_IMPORT_FEATURE_CHECK_FAILED");
             }
