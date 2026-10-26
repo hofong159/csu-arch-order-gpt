@@ -15,3 +15,45 @@
 
 /* Student and admin photo previews, with mobile-safe sizing */
 .photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:10px;margin:12px 0}.photo-thumb{display:flex;flex-direction:column;gap:6px;border:1px solid #d6e0e6;border-radius:10px;padding:7px;text-decoration:none;color:inherit;background:#fff;min-width:0}.photo-thumb img{display:block;width:100%;height:116px;object-fit:cover;border-radius:6px;background:#eef2f5}.photo-thumb span{font-size:12px;text-align:center}.photo-thumb:focus-visible{outline:3px solid #3d79a8;outline-offset:2px}
+
+
+/* Whole-week timetable */
+.public-week-board{margin:20px 0 28px;padding:18px}
+.week-board-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.week-board-heading h2{margin:0 0 4px;font-size:21px}
+.week-range{font-size:13px;color:var(--muted);margin:4px 0 14px}
+.public-room-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:12px}
+.public-room-card{border:1px solid var(--line);border-radius:12px;padding:13px;background:#fff;min-width:0}
+.public-room-card h3{margin:0 0 10px;font-size:19px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+.public-room-days{display:flex;flex-direction:column;gap:8px}
+.public-day{border:1px solid #e8edf0;border-radius:8px;padding:8px;background:#fbfcfd}
+.public-day-title{display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:6px;color:var(--ink)}
+.public-day-title span{color:var(--muted);font-variant-numeric:tabular-nums}
+.public-empty{font-size:12px;color:#87949d;padding:5px 2px}
+.public-course,.public-booked{display:flex;flex-direction:column;gap:2px;margin-top:5px;padding:7px 8px;border-left:4px solid #315f9c;border-radius:5px;background:#e7effc;color:#22446f;font-size:12px;overflow-wrap:anywhere}
+.public-course span,.public-booked span{font-variant-numeric:tabular-nums}
+.public-course-title{line-height:1.4}
+.public-booked{background:#fff0db;border-left-color:#e58a25;color:#85430b}
+.public-booked b,.public-course b{font-size:11px}
+.weekly-editor{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 15px;padding:16px;border:1px solid var(--line);border-radius:12px;background:#f9fbfc;margin:14px 0 24px}
+.weekly-editor>.field:nth-last-of-type(1),.weekly-editor>.button-row{grid-column:1/-1}
+.button-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.weekly-admin-grid{display:grid;grid-template-columns:repeat(7,minmax(230px,1fr));gap:10px;overflow-x:auto;padding:2px 2px 14px;align-items:start}
+.week-day-column{min-width:230px;border:1px solid var(--line);border-radius:12px;background:#f7f9fa;padding:10px;min-height:210px;transition:border-color .15s,background .15s}
+.week-day-column h4{display:flex;justify-content:space-between;align-items:center;margin:0 0 9px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.week-day-column h4 span{font-size:12px;color:var(--muted);font-weight:400}
+.week-day-column.drag-over{background:#e8f4f0;border-color:#38866b;box-shadow:inset 0 0 0 2px #c3e3d7}
+.week-day-empty{font-size:12px;color:#7b8993;text-align:center;padding:22px 8px}
+.weekly-course-card{display:grid;grid-template-columns:19px minmax(0,1fr);gap:5px;padding:9px 7px;margin:7px 0;background:#e8f0fc;border:1px solid #d2e0f7;border-radius:8px;color:#24466f}
+.weekly-course-card.dragging{opacity:.45}
+.drag-handle{font-size:20px;line-height:1;color:#5377a0;cursor:grab;user-select:none;padding-top:1px}
+.weekly-course-fields{display:flex;flex-direction:column;gap:3px;font-size:12px;overflow-wrap:anywhere}
+.weekly-course-fields b{font-size:13px}
+.weekly-course-actions{grid-column:1/-1;display:flex;gap:5px;flex-wrap:wrap;margin-top:5px}
+.weekly-course-actions button{padding:5px 7px;font-size:11px}
+@media(max-width:680px){
+ .weekly-editor{grid-template-columns:1fr}
+ .weekly-editor>.field:nth-last-of-type(1),.weekly-editor>.button-row{grid-column:1}
+ .public-room-grid{grid-template-columns:1fr}
+ .public-week-board{padding:12px}
+}
