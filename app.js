@@ -446,7 +446,7 @@ async function submitRequest(e){
     if(start.getTime()<=Date.now())throw new Error("不能申請已開始或過去的時段。");
     await checkCourseConflicts(start,end,itemId);
     const slots=[];for(let d=new Date(start);d<end;d=new Date(d.getTime()+30*60000)){const date=localDate(d),time=fmt(d);slots.push({date,time,key:date+"_"+itemId+"_"+time.replace(":","")})}
-    const code=randomCode(), bookingRef=sdk.doc(db,"bookings",code);
+    const code=randomCode(),publicId=randomCode(),bookingRef=sdk.doc(db,"bookings",code),publicRef=sdk.doc(db,"publicBookings",publicId);
     const lanes=[0,1].map(lane=>slots.map(slot=>sdk.doc(db,"reservationLocks",slot.key+"_"+lane)));
     await sdk.runTransaction(db,async tx=>{
       const refs=lanes[0].concat(lanes[1]);
@@ -460,8 +460,9 @@ async function submitRequest(e){
         borrowType:val("borrowType"),type,itemId,item:item.name,date:val("date"),start:val("start"),
         hours,purpose:val("purpose"),status:"pending",startAt:start.getTime(),endAt:end.getTime(),
         endDate:localDate(end),endTime:fmt(end),lockIds,photoIds:[],createdAt:sdk.serverTimestamp(),
-        checkedInAt:null,checkedOutAt:null
+        checkedInAt:null,checkedOutAt:null,publicReservationId:publicId
       });
+      tx.set(publicRef,{itemId,item:item.name,date:val("date"),start:val("start"),endDate:localDate(end),endTime:fmt(end),startAt:start.getTime(),endAt:end.getTime(),status:"pending",createdAt:sdk.serverTimestamp()});
       slots.forEach((slot,i)=>tx.set(sdk.doc(db,"reservationLocks",lockIds[i]),{
         bookingId:code,lockId:lockIds[i],itemId,date:slot.date,time:slot.time,lane,status:"active",createdAt:sdk.serverTimestamp()
       }));
@@ -1206,9 +1207,29 @@ async function adminSection(which){
     const snap=await withFirestoreTimeout(sdk.getDocs(sdk.collection(db,"bookings")),"申請／照片資料讀取",12000),rows=snap.docs.map(d=>({id:d.id,...d.data()}));
     const createdMillis=value=>value?.toDate?value.toDate().getTime():(value?new Date(value).getTime():0);
     rows.sort((a,b)=>createdMillis(b.createdAt)-createdMillis(a.createdAt));
-    c.innerHTML='<h3>申請／照片管理</h3><div class="table-wrap"><table><thead><tr><th>申請人／手機</th><th>項目／時間</th><th>狀態</th><th>簽到／照片</th><th>審核</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+esc(r.name)+'<br>'+esc(r.className)+'<br>'+esc(r.phone)+'</td><td>'+esc(r.item)+'<br>'+esc(r.date)+' '+esc(r.start)+'–'+esc(r.endDate&&r.endDate!==r.date?r.endDate+' ':'')+esc(r.endTime)+'<br><small>'+esc(r.purpose||"")+'</small></td><td>'+esc(r.displayStatus||statusLabel(r.status))+(r.legacyImportConflict?'<br><b style="color:#b45309">⚠ 匯入時段衝突，未佔用時段</b>':"")+'</td><td>'+(r.checkedInAt?"已簽到":"未簽到")+'／'+(r.checkedOutAt?"已簽退":"未簽退")+'<br>'+((r.photoIds||[]).map((p,i)=>'<button class="secondary" data-openphoto="'+esc(r.id)+'" data-photoid="'+esc(p)+'">照片'+(i+1)+'</button>').concat((Array.isArray(r.photos)?r.photos:[]).map((p,i)=>'<button class="secondary" data-openlegacy="'+esc(r.id)+'" data-legacyidx="'+i+'">舊照片'+(i+1)+'</button>')).join(" ")||"無照片")+'</td><td><select data-status="'+esc(r.id)+'">'+["pending","approved","rejected","cancelled","finished"].map(k=>'<option value="'+k+'" '+(r.status===k?"selected":"")+'>'+statusLabel(k)+'</option>').join("")+'</select><button class="secondary" data-savebooking="'+esc(r.id)+'">儲存</button></td></tr>').join("")+'</tbody></table></div>';
-    $$("[data-savebooking]").forEach(b=>b.onclick=async()=>{const id=b.dataset.savebooking,status=$("[data-status='"+id+"']",c).value;try{await sdk.updateDoc(sdk.doc(db,"bookings",id),{status,reviewedAt:sdk.serverTimestamp()});if(["rejected","cancelled","finished"].includes(status)){const locks=await sdk.getDocs(sdk.query(sdk.collection(db,"reservationLocks"),sdk.where("bookingId","==",id)));for(const l of locks.docs)await sdk.deleteDoc(sdk.doc(db,"reservationLocks",l.id))}toast("申請狀態已更新");await adminSection("bookings")}catch(e){toast("更新失敗："+friendlyError(e))}});
-    $$("[data-openphoto]").forEach(b=>b.onclick=async()=>{
+    c.innerHTML='<h3>申請／照片管理</h3><div class="table-wrap"><table><thead><tr><th>申請人／手機</th><th>項目／時間</th><th>狀態</th><th>簽到／照片</th><th>審核</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+esc(r.name)+'<br>'+esc(r.className)+'<br>'+esc(r.phone)+'</td><td>'+esc(r.item)+'<br>'+esc(r.date)+' '+esc(r.start)+'–'+esc(r.endDate&&r.endDate!==r.date?r.endDate+' ':'')+esc(r.endTime)+'<br><small>'+esc(r.purpose||"")+'</small></td><td>'+esc(r.displayStatus||statusLabel(r.status))+(r.legacyImportConflict?'<br><b style="color:#b45309">⚠ 匯入時段衝突，未佔用時段</b>':"")+'</td><td>'+(r.checkedInAt?"已簽到":"未簽到")+'／'+(r.checkedOutAt?"已簽退":"未簽退")+'<br>'+((r.photoIds||[]).map((p,i)=>'<button class="secondary" data-openphoto="'+esc(r.id)+'" data-photoid="'+esc(p)+'">照片'+(i+1)+'</button>').concat((Array.isArray(r.photos)?r.photos:[]).map((p,i)=>'<button class="secondary" data-openlegacy="'+esc(r.id)+'" data-legacyidx="'+i+'">舊照片'+(i+1)+'</button>')).join(" ")||"無照片")+'</td><td><select data-status="'+esc(r.id)+'">'+["pending","approved","rejected","cancelled","finished"].map(k=>'<option value="'+k+'" '+(r.status===k?"selected":"")+'>'+statusLabel(k)+'</option>').join("")+'</select><button class="secondary" data-savebooking="'+esc(r.id)+'">儲存</button><button class="danger" data-deletebooking="'+esc(r.id)+'">刪除</button></td></tr>').join("")+'</tbody></table></div>';
+    $$("[data-savebooking]").forEach(b=>b.onclick=async()=>{const id=b.dataset.savebooking,status=$("[data-status='"+id+"']",c).value;try{await sdk.updateDoc(sdk.doc(db,"bookings",id),{status,reviewedAt:sdk.serverTimestamp()});const bookingRow=rows.find(r=>r.id===id);if(bookingRow?.publicReservationId)await sdk.updateDoc(sdk.doc(db,"publicBookings",bookingRow.publicReservationId),{status,updatedAt:sdk.serverTimestamp()});if(["rejected","cancelled","finished"].includes(status)){const locks=await sdk.getDocs(sdk.query(sdk.collection(db,"reservationLocks"),sdk.where("bookingId","==",id)));for(const l of locks.docs)await sdk.deleteDoc(sdk.doc(db,"reservationLocks",l.id))}toast("申請狀態已更新");await adminSection("bookings")}catch(e){toast("更新失敗："+friendlyError(e))}});
+    $("[data-deletebooking]").forEach(button=>button.onclick=async()=>{
+      const id=button.dataset.deletebooking,row=rows.find(r=>r.id===id);
+      if(!row||!confirm("確定永久刪除「"+(row.name||"這筆申請")+"」的紀錄？\n會一併刪除關聯時段鎖、簽退照片與公開時段，不可復原。"))return;
+      button.disabled=true;
+      try{
+        const refs=[];
+        (Array.isArray(row.lockIds)?row.lockIds:[]).forEach(lockId=>refs.push(sdk.doc(db,"reservationLocks",lockId)));
+        const photos=await sdk.getDocs(sdk.collection(db,"bookings",id,"photos"));
+        photos.docs.forEach(photo=>refs.push(photo.ref));
+        if(row.publicReservationId)refs.push(sdk.doc(db,"publicBookings",row.publicReservationId));
+        refs.push(sdk.doc(db,"bookings",id));
+        for(let offset=0;offset<refs.length;offset+=450){
+          const batch=sdk.writeBatch(db);
+          refs.slice(offset,offset+450).forEach(ref=>batch.delete(ref));
+          await batch.commit();
+        }
+        toast("借用紀錄與關聯資料已刪除");
+        await adminSection("bookings");
+      }catch(e){button.disabled=false;toast("刪除失敗："+friendlyError(e))}
+    });
+    $("[data-openphoto]").forEach(b=>b.onclick=async()=>{
       const w=window.open("","_blank");if(!w)return toast("瀏覽器阻擋新視窗，請允許彈出視窗後重試");
       try{
         const d=await withFirestoreTimeout(sdk.getDoc(sdk.doc(db,"bookings",b.dataset.openphoto,"photos",b.dataset.photoid)),"簽退照片讀取",12000);
